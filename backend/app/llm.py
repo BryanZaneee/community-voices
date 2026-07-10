@@ -124,7 +124,7 @@ JUDGE_SCHEMA = {
 }
 
 JUDGE_SYSTEM = """You judge two "Community Voices" documents (A and B) that each
-summarize what a subreddit discussed in a given week and predict the next week.
+summarize what an online community discussed in a given week and predict the next week.
 Score each document 1-5 on:
 - specificity: concrete posts, names, numbers vs. vague generalities
 - evidence: claims grounded in real cited discussions vs. unsupported
@@ -134,9 +134,7 @@ Pick the overall winner ("a", "b", or "tie") and give a 2-3 sentence rationale.
 Judge only the content; ignore formatting differences."""
 
 
-def judge_json(doc_a_md: str, doc_b_md: str) -> dict:
-    """Compare two documents with Claude structured outputs. Never raises on
-    parse issues — falls back to raw text in the rationale."""
+def _judge_anthropic(user_content: str) -> str:
     cfg = _require_key(config.JUDGE_MODEL_KEY)
     import anthropic
 
@@ -146,17 +144,45 @@ def judge_json(doc_a_md: str, doc_b_md: str) -> dict:
         max_tokens=1024,
         system=JUDGE_SYSTEM,
         output_config={"format": {"type": "json_schema", "schema": JUDGE_SCHEMA}},
+        messages=[{"role": "user", "content": user_content}],
+    )
+    return "".join(b.text for b in resp.content if b.type == "text")
+
+
+def _judge_deepseek(user_content: str) -> str:
+    cfg = _require_key("deepseek-v4")
+    from openai import OpenAI
+
+    client = OpenAI(api_key=os.environ[cfg["key_env"]], base_url=cfg["base_url"])
+    resp = client.chat.completions.create(
+        model=cfg["model"],
+        max_tokens=1024,
+        response_format={"type": "json_object"},
         messages=[
             {
-                "role": "user",
-                "content": (
-                    f"<document_a>\n{doc_a_md}\n</document_a>\n\n"
-                    f"<document_b>\n{doc_b_md}\n</document_b>"
-                ),
-            }
+                "role": "system",
+                "content": JUDGE_SYSTEM
+                + "\nRespond ONLY with JSON matching this schema:\n"
+                + json.dumps(JUDGE_SCHEMA),
+            },
+            {"role": "user", "content": user_content},
         ],
     )
-    text = "".join(b.text for b in resp.content if b.type == "text")
+    return resp.choices[0].message.content or ""
+
+
+def judge_json(doc_a_md: str, doc_b_md: str) -> dict:
+    """Compare two documents. Prefers Claude structured outputs; falls back to
+    DeepSeek JSON mode if the Anthropic call fails (no key, no credits, ...).
+    Never raises on parse issues — raw text lands in the rationale."""
+    user_content = (
+        f"<document_a>\n{doc_a_md}\n</document_a>\n\n"
+        f"<document_b>\n{doc_b_md}\n</document_b>"
+    )
+    try:
+        text = _judge_anthropic(user_content)
+    except Exception:
+        text = _judge_deepseek(user_content)
     try:
         return json.loads(text)
     except json.JSONDecodeError:
