@@ -1,13 +1,25 @@
 # Community Voices
 
-A full-stack RAG application that listens to **r/gaming** and writes a weekly
+A full-stack RAG application that listens to a gaming community and writes a weekly
 **Community Voices Document**: what the community talked about, the standout
 threads, how last week's predictions held up, and what it will talk about next
 week — grounded in the community's actual posts via retrieval-augmented
 generation, with built-in A/B testing of the whole idea.
 
+The community is **c/games on lemmy.world** — the fediverse's largest gaming
+community — chosen deliberately: its API is public by design, so evaluators can
+run the crawler and the live week-pull with **zero credentials**. (The app was
+originally built against r/gaming; Reddit's 2026 Data API approval gate — manual
+review, weeks-long waits, unauthenticated `.json`/RSS both blocked — made
+evaluator-reproducible ingestion impossible. The Reddit OAuth crawler remains in
+the repo: `python -m app.ingest gaming --source reddit`.)
+
 Built for the Community Voices engineering challenge (see
 [objective.md](objective.md); progress log in [ROADMAP.md](ROADMAP.md)).
+
+![Document tab](docs/document-tab.png)
+![Compare tab](docs/compare-tab.png)
+![Embeddings tab](docs/embeddings-tab.png)
 
 ## Quick start
 
@@ -23,7 +35,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
 The repo ships with a pre-ingested database (`data/community.sqlite`) holding a
-month of r/gaming activity plus pre-generated documents and comparisons, so the
+month of c/games activity (200 posts, 455 embedded chunks, 5 week windows) plus
+pre-generated weekly documents and one judged comparison of each kind, so the
 app demos **with zero API keys**. Add keys to unlock more:
 
 | You have | You can |
@@ -31,21 +44,21 @@ app demos **with zero API keys**. Add keys to unlock more:
 | no keys | Browse every week's documents, all stored comparisons, the embedding map, and retrieval stats |
 | `ANTHROPIC_API_KEY` or `DEEPSEEK_API_KEY` | Generate new documents and run comparisons (retrieval falls back to BM25 keyword search without a Voyage key) |
 | + `VOYAGE_API_KEY` | Full hybrid retrieval (BM25 + vector, RRF-fused) |
-| + `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | "Pull this week live" — scrape the trailing 7 days of r/gaming on demand |
+| + `VOYAGE_API_KEY` (same key) | "Pull this week live" — ingest the trailing 7 days of c/games on demand, no other credentials |
+| `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | Only for `--source reddit` — requires Reddit's Data API approval (2026 policy) |
 
 Copy `.env.example` to `.env` in the repo root and fill in what you have.
-A Reddit "script app" is free: <https://www.reddit.com/prefs/apps> → create app
-→ type *script* → copy the client id (under the app name) and secret.
 
 ## What's inside
 
 ```
-Reddit (top posts + comments)          FastAPI                    React SPA
-        │  crawler (OAuth,              │                          │
-        │  parallel fetches)            │  /api/generate           │  Document tab
-        ▼                               │  /api/compare            │  Compare tab
-  markdown per post ── chunker ──► sqlite-vec vector table         │  Embeddings tab
-                          │        + BM25 (in-memory)              │  Stats tab
+Lemmy c/games (top posts + comments)   FastAPI                    React SPA
+        │  crawler (open API,           │                          │
+        │  parallel fetches;            │  /api/generate           │  Document tab
+        │  --source reddit kept)        │  /api/compare            │  Compare tab
+        ▼                               │                          │  Embeddings tab
+  markdown per post ── chunker ──► sqlite-vec vector table         │  Stats tab
+                          │        + BM25 (in-memory)              │
                           ▼             │                          │
                     Voyage embeddings   └── retrieval stats, PCA ──┘
 ```
@@ -64,8 +77,9 @@ Reddit (top posts + comments)          FastAPI                    React SPA
 - **Generation**: 4 models via one registry — Claude Opus 4.8, Claude Haiku
   4.5, DeepSeek V4, DeepSeek V4 Flash — each generation records latency and
   token usage.
-- **Judging**: every comparison is scored by Claude Haiku with structured
-  outputs on specificity, evidence, temporal grounding, and usefulness.
+- **Judging**: every comparison is scored on specificity, evidence, temporal
+  grounding, and usefulness — Claude Haiku structured outputs when an Anthropic
+  key works, automatic fallback to DeepSeek V4 JSON mode otherwise.
 
 ## The A/B tests (three kinds)
 
@@ -81,13 +95,13 @@ Reddit (top posts + comments)          FastAPI                    React SPA
 
 ## The crawler
 
-`python -m app.ingest gaming` (from `backend/`, with `VOYAGE_API_KEY` +
-Reddit creds in `.env`):
+`python -m app.ingest games` (from `backend/`, with `VOYAGE_API_KEY` in
+`.env` — nothing else needed):
 
-1. **Listing sweep** — 2 paginated requests to `top.json?t=month` via Reddit's
-   app-only OAuth (`oauth.reddit.com`) → ~200 posts. Public `.json` endpoints
-   are used as a fallback where Reddit doesn't block them.
-2. **Comment fetches** — top ~30 posts per trailing 7-day window with ≥10
+1. **Listing sweep** — paginated requests to Lemmy's open
+   `/api/v3/post/list?community_name=games&sort=TopMonth` → ~200 posts.
+   (`--source reddit` swaps in the OAuth `top.json` sweep instead.)
+2. **Comment fetches** — top ~30 posts per trailing 7-day window with ≥5
    comments, fetched in parallel (6 workers), top-level comments only.
 3. **Chunk → embed → index** — each post becomes a small markdown doc
    (title, metadata, selftext, top comments), split into ~400-token chunks
@@ -99,7 +113,9 @@ fetches only where there's real discussion, 12 comments/post, per-field
 truncation — a month lands around 600–1200 chunks. Re-runs are idempotent:
 stable chunk IDs mean overlapping windows only embed what's new. The in-app
 **"Pull this week live"** button runs the same pipeline for the trailing 7 days
-(~15 s) and the new window appears in the week selector.
+(~15 s) and the new window appears in the week selector. Measured on the real
+month ingest: 200 posts + 119 comment fetches in 6.2 s, chunk + embed + index
+in 12.4 s.
 
 ## Performance notes
 
@@ -126,7 +142,7 @@ above.
 
 | objective.md | Where |
 |---|---|
-| 1. Community with an active online presence | r/gaming (CLI-configurable) |
+| 1. Community with an active online presence | c/games@lemmy.world (CLI-configurable; reddit source kept) |
 | 2. App generating a Community Voices Document (past week + predictions) | Document tab; markdown download |
 | 3. RAG-empowered generation | week-scoped facet retrieval → context-grounded prompt |
 | 3a. Vector DB / vectorized table in a relational DB | sqlite-vec `vec0` table inside SQLite |

@@ -38,7 +38,14 @@ export default function DocumentTab({
     if (!week) return
     api
       .documents(week)
-      .then((docs) => setDoc(docs.find((d) => d.mode === 'rag') ?? docs[0] ?? null))
+      .then((docs) =>
+        setDoc(
+          docs.find((d) => d.mode === 'rag' && d.retrieval_mode === 'hybrid') ??
+            docs.find((d) => d.mode === 'rag') ??
+            docs[0] ??
+            null,
+        ),
+      )
       .catch(() => setDoc(null))
   }, [week])
 
