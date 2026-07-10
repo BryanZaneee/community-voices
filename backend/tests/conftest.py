@@ -120,6 +120,10 @@ def stub_llm(monkeypatch):
     calls = {"complete": [], "judge": []}
 
     def fake_complete(model_key, system, user):
+        from app import config
+
+        if model_key not in config.MODELS:  # mirror _require_key's registry check
+            raise llm.ModelUnavailable(f"unknown model: {model_key}")
         calls["complete"].append({"model_key": model_key, "system": system, "user": user})
         week = system.split("Week of ")[-1].split(" ")[0] if "Week of" in system else "?"
         title = "Massive studio layoffs announced #0"
