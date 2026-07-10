@@ -24,3 +24,7 @@ node_modules/
 .DS_Store
 .idea/
 .vscode/
+
+# Test/tooling artifacts
+.playwright-mcp/
+cv-*.png
