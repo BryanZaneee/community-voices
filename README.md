@@ -1,5 +1,7 @@
 # Community Voices
 
+[![tests](https://github.com/BryanZaneee/community-voices/actions/workflows/tests.yml/badge.svg)](https://github.com/BryanZaneee/community-voices/actions/workflows/tests.yml)
+
 A full-stack RAG application that listens to a gaming community and writes a weekly
 **Community Voices Document**: what the community talked about, the standout
 threads, how last week's predictions held up, and what it will talk about next
@@ -128,12 +130,27 @@ single transaction; KNN uses sqlite-vec's native `MATCH ... k = ?` path.
 ## Tests
 
 ```bash
-cd backend && .venv/bin/python -m pytest tests -s
+cd backend && .venv/bin/python -m pytest tests -q   # 75 tests, <1s, no API keys
 ```
 
-Covers the chunk → embed → index → retrieve round trip, week-window filtering,
-the keyless BM25 fallback, and stable chunk IDs, and prints the perf timings
-above.
+Four layers, all fully offline (embeddings faked, LLM calls stubbed), run in CI
+on every push:
+
+- **Unit** — one file per module: chunker (splits, overlap, stable IDs), BM25
+  (ranking, distance transform), vector index (KNN, upserts, dim guards),
+  embeddings, retriever (exact RRF math, mode switches, keyless degradation,
+  week filtering), PCA, db helpers, ingest (markdown mapping, Lemmy field
+  mapping, idempotency), llm (cost math, judge fallback chain), generation
+  (facet retrieval, prompts, prediction-review chaining, persistence).
+- **API** — every endpoint through FastAPI's TestClient: happy paths, 400/404
+  paths, download headers, stats accumulation, the SPA mount.
+- **E2E** — the whole product story in one offline flow: ingest → weekly docs
+  oldest-first (asserting the prediction-review chain lands in each prompt) →
+  all three comparison kinds → boot the API on that database and verify every
+  read endpoint tells a consistent story.
+- **Regression** — pins bugs fixed during development (week-boundary
+  alignment, retrieval-mode recording, the empty-retrieval guard) plus a
+  golden chunk-ID snapshot protecting the committed vector store.
 
 ## Requirements coverage
 
