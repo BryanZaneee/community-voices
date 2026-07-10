@@ -74,6 +74,8 @@ def retrieve_context(
     mode: RetrievalMode = "hybrid",
 ) -> tuple[list, dict]:
     """Facet-query retrieval scoped to one week. Returns (chunks, meta)."""
+    if mode in ("hybrid", "vector") and retriever.embedding is None:
+        mode = "bm25"  # record the mode that actually ran
     allowed = week_paths(conn, week_start)
     best: dict[str, tuple[float, object]] = {}
     timings = []
@@ -163,6 +165,11 @@ def generate_document(
     meta: dict = {}
     if mode == "rag":
         chunks, meta = retrieve_context(conn, retriever, week_start, retrieval_mode)
+        if not chunks:
+            raise ValueError(
+                f"no chunks retrieved for week {week_start} "
+                f"(retrieval_mode={meta['mode']}) — is the week ingested?"
+            )
         user = RAG_INSTRUCTIONS.format(context=_context_block(conn, chunks))
     else:
         user = BASELINE_INSTRUCTIONS
