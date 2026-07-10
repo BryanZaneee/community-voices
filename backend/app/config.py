@@ -10,7 +10,7 @@ FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
 EMBEDDING_MODEL = "voyage-3-large"
 EMBEDDING_DIM = 1024
-DEFAULT_SUBREDDIT = "gaming"
+DEFAULT_COMMUNITY = "games"  # lemmy community name (or subreddit with --source reddit)
 USER_AGENT = "community-voices/0.1 (take-home demo; contact: repo issues)"
 
 

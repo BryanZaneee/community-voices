@@ -67,10 +67,13 @@ def status() -> dict:
         "embedding_model": db.get_meta(conn, "embedding_model"),
         "weeks": db.week_windows(conn),
         "hybrid": state["retriever"].embedding is not None,
-        "can_pull_live": bool(
-            os.environ.get("VOYAGE_API_KEY")
-            and os.environ.get("REDDIT_CLIENT_ID")
-            and os.environ.get("REDDIT_CLIENT_SECRET")
+        "can_pull_live": bool(os.environ.get("VOYAGE_API_KEY"))
+        and (
+            (db.get_meta(conn, "source") or "lemmy") != "reddit"
+            or bool(
+                os.environ.get("REDDIT_CLIENT_ID")
+                and os.environ.get("REDDIT_CLIENT_SECRET")
+            )
         ),
         "models_available": config.available_models(),
         "models": {
@@ -216,19 +219,21 @@ def download_document(doc_id: int) -> Response:
 def ingest_week() -> dict:
     if not os.environ.get("VOYAGE_API_KEY"):
         raise HTTPException(400, "Live pull requires VOYAGE_API_KEY in .env")
-    if not (
+    conn = state["conn"]
+    source = db.get_meta(conn, "source") or "lemmy"
+    if source == "reddit" and not (
         os.environ.get("REDDIT_CLIENT_ID") and os.environ.get("REDDIT_CLIENT_SECRET")
     ):
         raise HTTPException(
             400,
-            "Live pull requires REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET in .env "
-            "(free script app: reddit.com/prefs/apps)",
+            "Reddit live pull requires REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET "
+            "in .env (free script app: reddit.com/prefs/apps)",
         )
-    conn = state["conn"]
-    subreddit = db.get_meta(conn, "subreddit") or config.DEFAULT_SUBREDDIT
+    community = (db.get_meta(conn, "subreddit") or config.DEFAULT_COMMUNITY).split("@")[0].removeprefix("r/")
     provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
     report = ingest.run_ingest(
-        conn, state["vector_index"], provider, subreddit, window="week", pages=1
+        conn, state["vector_index"], provider, community,
+        window="week", pages=1, source=source,
     )
     # BM25 is in-memory — rebuild so new chunks are searchable immediately
     state["retriever"] = _build_retriever(conn, state["vector_index"])

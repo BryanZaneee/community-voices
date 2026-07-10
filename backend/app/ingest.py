@@ -1,12 +1,16 @@
-"""Reddit crawler: fill the vector store with a community's voices.
+"""Community crawler: fill the vector store with a community's voices.
 
-    python -m app.ingest gaming                # month backfill (~200 posts)
-    python -m app.ingest gaming --window week  # trailing week only
+Two sources share one pipeline:
+- lemmy (default): the open Lemmy API — no keys, no approval.
+    python -m app.ingest games --window month
+- reddit: OAuth Data API (REDDIT_CLIENT_ID/SECRET; Reddit's 2026 approval
+  gate applies).
+    python -m app.ingest gaming --source reddit
 
-Flow: listing sweep (paginated top.json) -> parallel comment fetches ->
-post markdown -> chunk -> embed (batched) -> sqlite-vec index -> PCA.
-Idempotent: posts upsert by id and chunk IDs are content-stable, so re-runs
-and overlapping windows only add what's new.
+Flow: listing sweep (paginated) -> parallel comment fetches -> post markdown
+-> chunk -> embed (batched) -> sqlite-vec index -> PCA. Idempotent: posts
+upsert by id and chunk IDs are content-stable, so re-runs and overlapping
+windows only add what's new.
 """
 from __future__ import annotations
 
@@ -29,7 +33,7 @@ from app.rag.vector_index import VectorIndex
 
 LISTING_PAGES = 2          # 2 x limit=100 -> ~200 posts for the month sweep
 COMMENTS_PER_POST = 12
-MIN_COMMENTS_TO_FETCH = 10  # skip comment requests for low-discussion posts
+MIN_COMMENTS_TO_FETCH = 5  # skip comment requests for low-discussion posts
 TOP_POSTS_PER_WEEK = 30     # only the week's top posts get comment fetches
 SELFTEXT_MAX_CHARS = 2000
 COMMENT_MAX_CHARS = 800
@@ -123,6 +127,94 @@ def fetch_comments(session: requests.Session, permalink: str) -> list[dict]:
         if len(out) >= COMMENTS_PER_POST:
             break
     return out
+
+
+# ---------------------------------------------------------------- lemmy ----
+
+LEMMY_INSTANCE = "https://lemmy.world"
+
+
+def _lemmy_get(session: requests.Session, path: str, **params) -> dict:
+    for attempt in (0, 1):
+        resp = session.get(f"{LEMMY_INSTANCE}{path}", params=params, timeout=30)
+        if resp.status_code in (429, 500, 502, 503) and attempt == 0:
+            time.sleep(10)
+            continue
+        resp.raise_for_status()
+        return resp.json()
+    raise RuntimeError("unreachable")  # pragma: no cover
+
+
+def _lemmy_post_to_common(pv: dict) -> dict:
+    """Map a Lemmy post_view onto the reddit-shaped dict the pipeline uses."""
+    post, counts = pv["post"], pv["counts"]
+    created = datetime.fromisoformat(post["published"].replace("Z", "+00:00"))
+    return {
+        "name": f"lemmy_{post['id']}",
+        "_lemmy_id": post["id"],
+        "title": post["name"],
+        "author": pv["creator"]["name"],
+        "score": counts["score"],
+        "num_comments": counts["comments"],
+        "created_utc": created.timestamp(),
+        "permalink": post.get("ap_id"),
+        "link_flair_text": None,
+        "selftext": post.get("body") or "",
+    }
+
+
+def fetch_top_posts_lemmy(
+    session: requests.Session, community: str, window: str, pages: int
+) -> list[dict]:
+    sort = "TopMonth" if window == "month" else "TopWeek"
+    posts: list[dict] = []
+    for page in range(1, pages + 1):
+        payload = _lemmy_get(
+            session,
+            "/api/v3/post/list",
+            community_name=community,
+            sort=sort,
+            limit=50,
+            page=page,
+        )
+        batch = payload.get("posts", [])
+        posts.extend(_lemmy_post_to_common(pv) for pv in batch)
+        if len(batch) < 50:
+            break
+    return posts
+
+
+def fetch_comments_lemmy(session: requests.Session, post: dict) -> list[dict]:
+    """Top-level comments in reddit comment shape (author/score/body)."""
+    try:
+        payload = _lemmy_get(
+            session,
+            "/api/v3/comment/list",
+            post_id=post["_lemmy_id"],
+            sort="Top",
+            limit=COMMENTS_PER_POST * 2,
+            max_depth=1,
+        )
+    except Exception:
+        return []
+    out = []
+    for cv in payload.get("comments", []):
+        body = (cv["comment"].get("content") or "").strip()
+        if not body or cv["comment"].get("deleted") or cv["comment"].get("removed"):
+            continue
+        out.append(
+            {
+                "author": cv["creator"]["name"],
+                "score": cv["counts"]["score"],
+                "body": body,
+            }
+        )
+        if len(out) >= COMMENTS_PER_POST:
+            break
+    return out
+
+
+# --------------------------------------------------------------- shared ----
 
 
 def select_for_comments(posts: list[dict]) -> list[dict]:
@@ -237,18 +329,30 @@ def run_ingest(
     conn: sqlite3.Connection,
     vector_index: VectorIndex,
     provider: EmbeddingProvider,
-    subreddit: str,
+    community: str,
     window: str = "month",
     pages: int = LISTING_PAGES,
+    source: str = "lemmy",
 ) -> dict:
-    session = make_session()
+    if source == "lemmy":
+        session = requests.Session()
+        session.headers["User-Agent"] = config.USER_AGENT
+        display_name = f"{community}@{LEMMY_INSTANCE.removeprefix('https://')}"
+    else:
+        session = make_session()
+        display_name = f"r/{community}"
 
     t0 = time.perf_counter()
-    posts = fetch_top_posts(session, subreddit, window, pages)
+    if source == "lemmy":
+        posts = fetch_top_posts_lemmy(session, community, window, pages * 2)
+        fetch_one = fetch_comments_lemmy
+    else:
+        posts = fetch_top_posts(session, community, window, pages)
+        fetch_one = lambda s, p: fetch_comments(s, p["permalink"])  # noqa: E731
     wanting_comments = select_for_comments(posts)
     with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
         fetched = pool.map(
-            lambda p: (p["name"], fetch_comments(session, p["permalink"])),
+            lambda p: (p["name"], fetch_one(session, p)),
             wanting_comments,
         )
         comments_by_id = dict(fetched)
@@ -256,8 +360,9 @@ def run_ingest(
 
     t0 = time.perf_counter()
     report = ingest_posts(
-        conn, subreddit, posts, comments_by_id, provider, vector_index
+        conn, display_name, posts, comments_by_id, provider, vector_index
     )
+    db.set_meta(conn, "source", source)
     report.update(
         {
             "comment_fetches": len(wanting_comments),
@@ -269,19 +374,20 @@ def run_ingest(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Ingest a subreddit's voices")
-    parser.add_argument("subreddit", nargs="?", default=config.DEFAULT_SUBREDDIT)
+    parser = argparse.ArgumentParser(description="Ingest a community's voices")
+    parser.add_argument("community", nargs="?", default=config.DEFAULT_COMMUNITY)
+    parser.add_argument("--source", choices=["lemmy", "reddit"], default="lemmy")
     parser.add_argument("--window", choices=["month", "week"], default="month")
     parser.add_argument("--pages", type=int, default=LISTING_PAGES,
-                        help="listing pages of 100 posts each")
+                        help="listing pages (100 posts each on reddit, 100 on lemmy)")
     args = parser.parse_args()
 
     conn = db.connect(config.DB_PATH)
     vector_index = VectorIndex(config.DB_PATH, dim=config.EMBEDDING_DIM)
     provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
     report = run_ingest(
-        conn, vector_index, provider, args.subreddit,
-        window=args.window, pages=args.pages,
+        conn, vector_index, provider, args.community,
+        window=args.window, pages=args.pages, source=args.source,
     )
     print(json.dumps(report, indent=2))
     for w in db.week_windows(conn):

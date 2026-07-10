@@ -25,10 +25,10 @@ CANONICAL_QUERIES = [
 K_PER_QUERY = 8
 MAX_CONTEXT_CHUNKS = 18
 
-DOC_SYSTEM = """You write a weekly "Community Voices" document for a subreddit.
+DOC_SYSTEM = """You write a weekly "Community Voices" document for an online community.
 Structure it exactly as:
 
-# Community Voices — r/{subreddit} — Week of {week_range}
+# Community Voices — {community} — Week of {week_range}
 
 ## What the community talked about
 3-5 themes, each a short paragraph.
@@ -120,7 +120,7 @@ def _context_block(conn: sqlite3.Connection, chunks: list) -> str:
 
 
 def _previous_predictions(
-    conn: sqlite3.Connection, subreddit: str, week_start: str
+    conn: sqlite3.Connection, community: str, week_start: str
 ) -> str | None:
     """Predictions section of the newest RAG doc for the preceding week."""
     prev_start = (
@@ -129,7 +129,7 @@ def _previous_predictions(
     row = conn.execute(
         "SELECT content_md FROM documents WHERE subreddit = ? AND week_start = ? "
         "AND mode = 'rag' ORDER BY id DESC LIMIT 1",
-        (subreddit, prev_start),
+        (community, prev_start),
     ).fetchone()
     if row is None:
         return None
@@ -148,15 +148,15 @@ def generate_document(
     retrieval_mode: RetrievalMode = "hybrid",
 ) -> int:
     """Generate one document, store it, return documents.id."""
-    subreddit = db.get_meta(conn, "subreddit") or "gaming"
+    community = db.get_meta(conn, "subreddit") or "games@lemmy.world"
     week_end = (
         datetime.fromisoformat(week_start) + timedelta(days=7)
     ).date().isoformat()
 
-    prev = _previous_predictions(conn, subreddit, week_start)
+    prev = _previous_predictions(conn, community, week_start)
     review = PREDICTION_REVIEW.format(previous_predictions=prev) if prev else ""
     system = DOC_SYSTEM.format(
-        subreddit=subreddit,
+        community=community,
         week_range=f"{week_start} to {week_end}",
         prediction_review_section=review,
     )
@@ -186,7 +186,7 @@ def generate_document(
                 mode,
                 model_key,
                 week_start,
-                subreddit,
+                community,
                 result.text,
                 json.dumps(CANONICAL_QUERIES) if mode == "rag" else None,
                 json.dumps([c.chunk_id for c in chunks]) if mode == "rag" else None,

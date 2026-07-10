@@ -56,7 +56,7 @@ export default function App() {
           <div>
             <div className="kicker">
               <span className="dot" />
-              RAG-powered weekly digest · r/{status?.subreddit ?? 'gaming'}
+              RAG-powered weekly digest · {status?.subreddit ?? 'games@lemmy.world'}
             </div>
             <h1>
               Community <em>Voices</em>
