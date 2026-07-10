@@ -14,9 +14,6 @@ review, weeks-long waits, unauthenticated `.json`/RSS both blocked — made
 evaluator-reproducible ingestion impossible. The Reddit OAuth crawler remains in
 the repo: `python -m app.ingest gaming --source reddit`.)
 
-Built for the Community Voices engineering challenge (see
-[objective.md](objective.md); progress log in [ROADMAP.md](ROADMAP.md)).
-
 ![Document tab](docs/document-tab.png)
 ![Compare tab](docs/compare-tab.png)
 ![Embeddings tab](docs/embeddings-tab.png)
@@ -140,7 +137,7 @@ above.
 
 ## Requirements coverage
 
-| objective.md | Where |
+| Challenge requirement | Where |
 |---|---|
 | 1. Community with an active online presence | c/games@lemmy.world (CLI-configurable; reddit source kept) |
 | 2. App generating a Community Voices Document (past week + predictions) | Document tab; markdown download |
