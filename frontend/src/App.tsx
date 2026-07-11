@@ -112,7 +112,7 @@ export default function App() {
             {tab === 'Document' && <DocumentTab status={status} week={week} />}
             {tab === 'Compare' && <CompareTab status={status} week={week} />}
             {tab === 'Embeddings' && <EmbeddingsTab />}
-            {tab === 'Stats' && <StatsTab status={status} />}
+            {tab === 'Stats' && <StatsTab status={status} week={week} />}
           </>
         )}
       </div>
