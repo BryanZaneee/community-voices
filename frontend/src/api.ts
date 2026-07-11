@@ -2,15 +2,11 @@ export interface Week {
   week_start: string
   week_end: string
   n_posts: number
-  n_chunks: number
 }
 
 export interface Status {
   subreddit: string | null
-  ingested_at: string | null
-  embedding_model: string | null
   weeks: Week[]
-  hybrid: boolean
   can_pull_live: boolean
   models_available: string[]
   models: Record<string, { label: string; vendor: string }>
@@ -51,11 +47,7 @@ export interface Comparison {
   doc_a: Doc
   doc_b: Doc
   judge: Judge | null
-  extra: {
-    chunk_overlap_jaccard: number | null
-    chunks_a: number
-    chunks_b: number
-  } | null
+  extra: { chunk_overlap_jaccard: number | null } | null
 }
 
 export interface EmbeddingPoint {
@@ -117,7 +109,6 @@ export const api = {
     week_start: string
     mode: 'rag' | 'baseline'
     model_key: string
-    retrieval_mode?: string
   }) =>
     request<Doc>('/api/generate', {
       method: 'POST',

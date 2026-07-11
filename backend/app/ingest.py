@@ -18,7 +18,6 @@ import argparse
 import json
 import os
 import sqlite3
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -65,12 +64,10 @@ def make_session() -> requests.Session:
     return session
 
 
-def _get(session: requests.Session, path: str, **params) -> dict:
+def _get_json(session: requests.Session, url: str, **params) -> dict:
     """GET with one retry on rate-limit/server errors."""
     for attempt in (0, 1):
-        resp = session.get(
-            f"{session.base}{path}", params={**params, "raw_json": 1}, timeout=30
-        )
+        resp = session.get(url, params=params, timeout=30)
         if resp.status_code in (429, 500, 502, 503) and attempt == 0:
             time.sleep(10)
             continue
@@ -85,9 +82,10 @@ def fetch_top_posts(
     posts: list[dict] = []
     after: str | None = None
     for _ in range(pages):
-        payload = _get(
+        payload = _get_json(
             session,
-            f"/r/{subreddit}/top.json",
+            f"{session.base}/r/{subreddit}/top.json",
+            raw_json=1,
             t=window,
             limit=100,
             **({"after": after} if after else {}),
@@ -103,9 +101,10 @@ def fetch_top_posts(
 def fetch_comments(session: requests.Session, permalink: str) -> list[dict]:
     """Top-level comments only, skipping bots/stickied/deleted."""
     try:
-        payload = _get(
+        payload = _get_json(
             session,
-            f"{permalink.rstrip('/')}.json",
+            f"{session.base}{permalink.rstrip('/')}.json",
+            raw_json=1,
             sort="top",
             limit=COMMENTS_PER_POST * 2,
             depth=1,
@@ -134,17 +133,6 @@ def fetch_comments(session: requests.Session, permalink: str) -> list[dict]:
 LEMMY_INSTANCE = "https://lemmy.world"
 
 
-def _lemmy_get(session: requests.Session, path: str, **params) -> dict:
-    for attempt in (0, 1):
-        resp = session.get(f"{LEMMY_INSTANCE}{path}", params=params, timeout=30)
-        if resp.status_code in (429, 500, 502, 503) and attempt == 0:
-            time.sleep(10)
-            continue
-        resp.raise_for_status()
-        return resp.json()
-    raise RuntimeError("unreachable")  # pragma: no cover
-
-
 def _lemmy_post_to_common(pv: dict) -> dict:
     """Map a Lemmy post_view onto the reddit-shaped dict the pipeline uses."""
     post, counts = pv["post"], pv["counts"]
@@ -169,9 +157,9 @@ def fetch_top_posts_lemmy(
     sort = "TopMonth" if window == "month" else "TopWeek"
     posts: list[dict] = []
     for page in range(1, pages + 1):
-        payload = _lemmy_get(
+        payload = _get_json(
             session,
-            "/api/v3/post/list",
+            f"{LEMMY_INSTANCE}/api/v3/post/list",
             community_name=community,
             sort=sort,
             limit=50,
@@ -187,9 +175,9 @@ def fetch_top_posts_lemmy(
 def fetch_comments_lemmy(session: requests.Session, post: dict) -> list[dict]:
     """Top-level comments in reddit comment shape (author/score/body)."""
     try:
-        payload = _lemmy_get(
+        payload = _get_json(
             session,
-            "/api/v3/comment/list",
+            f"{LEMMY_INSTANCE}/api/v3/comment/list",
             post_id=post["_lemmy_id"],
             sort="Top",
             limit=COMMENTS_PER_POST * 2,
@@ -395,4 +383,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

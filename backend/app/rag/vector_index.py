@@ -186,22 +186,6 @@ class VectorIndex:
             ),
         )
 
-    def delete_by_path(self, rel_path: str) -> int:
-        """Remove all chunks whose path matches. Returns count deleted."""
-        conn = self._connect()
-        rows = conn.execute(
-            "SELECT rowid FROM chunks WHERE path = ?", (rel_path,)
-        ).fetchall()
-        rowids = [r[0] for r in rows]
-        if not rowids:
-            return 0
-        with conn:
-            conn.executemany(
-                "DELETE FROM vec_chunks WHERE rowid = ?", [(r,) for r in rowids]
-            )
-            conn.execute("DELETE FROM chunks WHERE path = ?", (rel_path,))
-        return len(rowids)
-
     def search(
         self,
         query_embedding: list[float],

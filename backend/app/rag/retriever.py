@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Literal
 
 from app.rag.chunker import Chunk
 from app.rag.embeddings import EmbeddingProvider
@@ -19,18 +19,10 @@ DEFAULT_RRF_K = 60
 RetrievalMode = Literal["hybrid", "vector", "bm25"]
 
 
-class SearchIndex(Protocol):
-    def search(self, query, k: int = 5): ...
-
-
 @dataclass(frozen=True)
 class RetrievalResult:
     chunk: Chunk
     score: float
-    bm25_score: float | None = None
-    bm25_rank: int | None = None
-    vector_score: float | None = None
-    vector_rank: int | None = None
 
 
 @dataclass(frozen=True)
@@ -47,8 +39,8 @@ class Retriever:
         self,
         *,
         embedding_provider: EmbeddingProvider | None,
-        bm25_index: SearchIndex,
-        vector_index: SearchIndex,
+        bm25_index,
+        vector_index,
     ) -> None:
         self.embedding = embedding_provider
         self.bm25 = bm25_index
@@ -126,16 +118,6 @@ class Retriever:
         )
 
 
-@dataclass
-class _FusionRow:
-    chunk: Chunk
-    score: float = 0.0
-    bm25_score: float | None = None
-    bm25_rank: int | None = None
-    vector_score: float | None = None
-    vector_rank: int | None = None
-
-
 def reciprocal_rank_fusion(
     *,
     bm25_results: list[tuple[Chunk, float]],
@@ -144,34 +126,19 @@ def reciprocal_rank_fusion(
     k_rrf: int = DEFAULT_RRF_K,
 ) -> list[RetrievalResult]:
     """Fuse ranked sparse and dense results using Reciprocal Rank Fusion."""
-    by_id: dict[str, _FusionRow] = {}
-
-    def add_source(source: str, results: list[tuple[Chunk, float]]) -> None:
-        for rank, (chunk, raw_score) in enumerate(results, start=1):
-            row = by_id.setdefault(chunk.chunk_id, _FusionRow(chunk=chunk))
-            row.score += 1.0 / (k_rrf + rank)
-            if source == "bm25":
-                row.bm25_score = float(raw_score)
-                row.bm25_rank = rank
-            else:
-                row.vector_score = float(raw_score)
-                row.vector_rank = rank
-
-    add_source("bm25", bm25_results)
-    add_source("vector", vector_results)
-
-    rows = sorted(
-        by_id.values(),
-        key=lambda row: (-row.score, row.chunk.path, row.chunk.start_line),
+    scores: dict[str, float] = {}
+    chunks: dict[str, Chunk] = {}
+    for results in (bm25_results, vector_results):
+        for rank, (chunk, _raw) in enumerate(results, start=1):
+            chunks[chunk.chunk_id] = chunk
+            scores[chunk.chunk_id] = scores.get(chunk.chunk_id, 0.0) + 1.0 / (
+                k_rrf + rank
+            )
+    ranked = sorted(
+        scores,
+        key=lambda cid: (-scores[cid], chunks[cid].path, chunks[cid].start_line),
     )
     return [
-        RetrievalResult(
-            chunk=row.chunk,
-            score=float(row.score),
-            bm25_score=row.bm25_score,
-            bm25_rank=row.bm25_rank,
-            vector_score=row.vector_score,
-            vector_rank=row.vector_rank,
-        )
-        for row in rows[: max(1, int(k))]
+        RetrievalResult(chunk=chunks[cid], score=scores[cid])
+        for cid in ranked[: max(1, int(k))]
     ]

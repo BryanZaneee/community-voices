@@ -28,7 +28,6 @@ def test_rrf_exact_math():
     assert scores["pa"] == pytest.approx(1 / 61)
     assert scores["pc"] == pytest.approx(1 / 62)
     assert fused[0].chunk.path == "pb"  # double-sourced chunk wins
-    assert fused[0].bm25_rank == 2 and fused[0].vector_rank == 1
 
 
 def test_rrf_deterministic_tie_break():

@@ -20,7 +20,6 @@ export default function App() {
     api.status().then((s) => {
       setStatus(s)
       setWeek((w) => w || s.weeks[0]?.week_start || '')
-      return s
     })
 
   useEffect(() => {

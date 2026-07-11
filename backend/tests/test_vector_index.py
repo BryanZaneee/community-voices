@@ -45,12 +45,6 @@ def test_upsert_updates_in_place(index, provider):
     assert len(index) == before  # same chunk_id -> update, not insert
 
 
-def test_delete_by_path(index):
-    assert index.delete_by_path("p_prices") == 1
-    assert len(index) == 2
-    assert index.delete_by_path("p_missing") == 0
-
-
 def test_dim_mismatch_raises(index):
     chunk = _chunk("p_new", "text")
     with pytest.raises(ValueError):

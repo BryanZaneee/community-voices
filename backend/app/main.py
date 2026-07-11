@@ -9,6 +9,7 @@ import json
 import os
 import sqlite3
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Response
@@ -255,20 +256,18 @@ def embeddings() -> dict:
         r["id"]: {"title": r["title"], "created_utc": r["created_utc"]}
         for r in conn.execute("SELECT id, title, created_utc FROM posts")
     }
-    weeks = db.week_windows(conn)
+    windows = []
+    for w in db.week_windows(conn):
+        start = datetime.fromisoformat(w["week_start"]).replace(tzinfo=timezone.utc)
+        end = start + timedelta(days=7)
+        windows.append((start.timestamp(), end.timestamp(), w["week_start"]))
 
     def week_of(created_utc: float | None) -> str | None:
         if created_utc is None:
             return None
-        from datetime import datetime, timedelta, timezone
-
-        for w in weeks:
-            start = datetime.fromisoformat(w["week_start"]).replace(
-                tzinfo=timezone.utc
-            )
-            end = start + timedelta(days=7)
-            if start.timestamp() <= created_utc < end.timestamp():
-                return w["week_start"]
+        for start_ts, end_ts, label in windows:
+            if start_ts <= created_utc < end_ts:
+                return label
         return None
 
     points = []

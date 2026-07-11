@@ -13,18 +13,22 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
-from typing import Callable
 
 from app.rag.chunker import Chunk
 
+K1 = 1.5
+B = 0.75
+SCORE_NORMALIZATION_FACTOR = 0.1  # exp(-f*score) distance transform
+
+_TOKEN_SPLIT = re.compile(r"\W+")
+
+
+def _tokenize(text: str) -> list[str]:
+    return [t for t in _TOKEN_SPLIT.split(text.lower()) if t]
+
 
 class BM25Index:
-    def __init__(
-        self,
-        k1: float = 1.5,
-        b: float = 0.75,
-        tokenizer: Callable[[str], list[str]] | None = None,
-    ):
+    def __init__(self) -> None:
         self.chunks: list[Chunk] = []
         self._doc_counts: list[Counter[str]] = []
         self._doc_len: list[int] = []
@@ -32,19 +36,11 @@ class BM25Index:
         self._avg_doc_len: float = 0.0
         self._idf: dict[str, float] = {}
         self._index_built: bool = False
-        self.k1 = k1
-        self.b = b
-        self._tokenizer = tokenizer if tokenizer else self._default_tokenizer
-
-    @staticmethod
-    def _default_tokenizer(text: str) -> list[str]:
-        tokens = re.split(r"\W+", text.lower())
-        return [t for t in tokens if t]
 
     def add(self, chunk: Chunk) -> None:
         if not isinstance(chunk, Chunk):
             raise TypeError("chunk must be a Chunk.")
-        tokens = self._tokenizer(chunk.content)
+        tokens = _tokenize(chunk.content)
         self.chunks.append(chunk)
         counts = Counter(tokens)
         self._doc_counts.append(counts)
@@ -76,19 +72,12 @@ class BM25Index:
             if idf is None:
                 continue
             tf = counts.get(tok, 0)
-            num = idf * tf * (self.k1 + 1)
-            den = tf + self.k1 * (
-                1 - self.b + self.b * (doc_len / self._avg_doc_len)
-            )
+            num = idf * tf * (K1 + 1)
+            den = tf + K1 * (1 - B + B * (doc_len / self._avg_doc_len))
             score += num / (den + 1e-9)
         return score
 
-    def search(
-        self,
-        query_text: str,
-        k: int = 5,
-        score_normalization_factor: float = 0.1,
-    ) -> list[tuple[Chunk, float]]:
+    def search(self, query_text: str, k: int = 5) -> list[tuple[Chunk, float]]:
         if not self.chunks:
             return []
         if k <= 0:
@@ -97,7 +86,7 @@ class BM25Index:
             self._build_index()
         if self._avg_doc_len == 0:
             return []
-        query_tokens = self._tokenizer(query_text)
+        query_tokens = _tokenize(query_text)
         if not query_tokens:
             return []
         raw: list[tuple[float, Chunk]] = []
@@ -108,7 +97,7 @@ class BM25Index:
         raw.sort(key=lambda item: item[0], reverse=True)
         out: list[tuple[Chunk, float]] = []
         for raw_score, chunk in raw[:k]:
-            normalized = math.exp(-score_normalization_factor * raw_score)
+            normalized = math.exp(-SCORE_NORMALIZATION_FACTOR * raw_score)
             out.append((chunk, normalized))
         out.sort(key=lambda item: item[1])
         return out
