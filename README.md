@@ -14,7 +14,7 @@ run the crawler and the live week-pull with **zero credentials**. (The app was
 originally built against r/gaming; Reddit's 2026 Data API approval gate — manual
 review, weeks-long waits, unauthenticated `.json`/RSS both blocked — made
 evaluator-reproducible ingestion impossible. The Reddit OAuth crawler remains in
-the repo: `python -m app.ingest gaming --source reddit`.)
+the repo: `.venv/bin/python -m app.ingest gaming --source reddit`.)
 
 ![Document tab](docs/document-tab.png)
 ![Compare tab](docs/compare-tab.png)
@@ -74,8 +74,8 @@ Lemmy c/games (top posts + comments)   FastAPI                    React SPA
   retrieved chunk bumps a retrieval counter (the Stats tab leaderboard and the
   dot sizes on the embedding map).
 - **Generation**: 4 models via one registry — Claude Opus 4.8, Claude Haiku
-  4.5, DeepSeek V4, DeepSeek V4 Flash — each generation records latency and
-  token usage.
+  4.5, DeepSeek V4, DeepSeek V4 Flash — each generation records latency, token
+  usage, and estimated cost.
 - **Judging**: every comparison is scored on specificity, evidence, temporal
   grounding, and usefulness — Claude Haiku structured outputs when an Anthropic
   key works, automatic fallback to DeepSeek V4 JSON mode otherwise.
@@ -94,8 +94,8 @@ Lemmy c/games (top posts + comments)   FastAPI                    React SPA
 
 ## The crawler
 
-`python -m app.ingest games` (from `backend/`, with `VOYAGE_API_KEY` in
-`.env` — nothing else needed):
+`.venv/bin/python -m app.ingest games` (from `backend/`, with `VOYAGE_API_KEY`
+in `.env` — nothing else needed):
 
 1. **Listing sweep** — paginated requests to Lemmy's open
    `/api/v3/post/list?community_name=games&sort=TopMonth` → ~200 posts.
@@ -109,16 +109,22 @@ Lemmy c/games (top posts + comments)   FastAPI                    React SPA
 
 Handling "overly large amounts of data": ~200-post cap per month, comment
 fetches only where there's real discussion, 12 comments/post, per-field
-truncation — a month lands around 600–1200 chunks. Re-runs are idempotent:
-stable chunk IDs mean overlapping windows only embed what's new. The in-app
-**"Pull this week live"** button runs the same pipeline for the trailing 7 days
-(~15 s) and the new window appears in the week selector. Measured on the real
-month ingest: 200 posts + 119 comment fetches in 6.2 s, chunk + embed + index
-in 12.4 s.
+truncation — a month lands in the mid-hundreds of chunks (this repo's committed
+month: 455). Re-runs are idempotent: stable chunk IDs mean overlapping windows
+only embed what's new. The in-app **"Pull this week live"** button runs the
+same pipeline for the trailing 7 days (~15 s) and the new window appears in the
+week selector. Measured on the real month ingest: 200 posts + 119 comment
+fetches in 6.2 s, chunk + embed + index in 12.4 s.
+
+Because re-runs are idempotent, unattended weekly ingestion is one cron line:
+
+```cron
+0 6 * * 1  cd /path/to/community-voices/backend && .venv/bin/python -m app.ingest games --window week
+```
 
 ## Performance notes
 
-Measured by `backend/tests/test_rag_roundtrip.py` (no API keys needed):
+Measured on a 200-post / ~640-chunk synthetic corpus (no API keys needed):
 
 - 640 chunks: build + hash-embed + index in ~150 ms
 - hybrid search: **0.8 ms** (BM25 0.5 ms, vector KNN 0.2 ms)
@@ -130,11 +136,11 @@ single transaction; KNN uses sqlite-vec's native `MATCH ... k = ?` path.
 ## Tests
 
 ```bash
-cd backend && .venv/bin/python -m pytest tests -q   # 75 tests, <1s, no API keys
+cd backend && .venv/bin/python -m pytest tests -q   # 69 tests, <1s, no API keys
 ```
 
-Four layers, all fully offline (embeddings faked, LLM calls stubbed), run in CI
-on every push:
+Three layers, all fully offline (embeddings faked, LLM calls stubbed), run in
+CI on every push:
 
 - **Unit** — one file per module: chunker (splits, overlap, stable IDs), BM25
   (ranking, distance transform), vector index (KNN, upserts, dim guards),
@@ -143,14 +149,12 @@ on every push:
   mapping, idempotency), llm (cost math, judge fallback chain), generation
   (facet retrieval, prompts, prediction-review chaining, persistence).
 - **API** — every endpoint through FastAPI's TestClient: happy paths, 400/404
-  paths, download headers, stats accumulation, the SPA mount.
-- **E2E** — the whole product story in one offline flow: ingest → weekly docs
-  oldest-first (asserting the prediction-review chain lands in each prompt) →
-  all three comparison kinds → boot the API on that database and verify every
-  read endpoint tells a consistent story.
+  paths, download headers, stats accumulation, the SPA mount, plus the product
+  story end-to-end: weekly docs oldest-first (asserting the prediction-review
+  chain lands in each prompt) with every retrieval counted exactly once.
 - **Regression** — pins bugs fixed during development (week-boundary
-  alignment, retrieval-mode recording, the empty-retrieval guard) plus a
-  golden chunk-ID snapshot protecting the committed vector store.
+  alignment) plus a golden chunk-ID snapshot protecting the committed vector
+  store.
 
 ## Requirements coverage
 
@@ -162,7 +166,7 @@ on every push:
 | 3a. Vector DB / vectorized table in a relational DB | sqlite-vec `vec0` table inside SQLite |
 | 3b. Flattened embedding visualization | Embeddings tab — PCA scatter |
 | 3c. Stats on most-retrieved embeddings | retrieval counters, Stats leaderboard, dot sizing |
-| 4. Automated vector-store fill | `app/ingest.py` crawler + live-pull endpoint |
+| 4. Automated vector-store fill | `app/ingest.py` crawler + live-pull endpoint + weekly cron one-liner |
 | 4a. Crawlers / agentic ingestion | OAuth Reddit crawler, parallel fetches |
 | 4b. Overly-large-data handling | caps, thresholds, truncation (see The crawler) |
 | 5. A/B test with vs without RAG | Compare tab, judge scorecard, stored runs |
