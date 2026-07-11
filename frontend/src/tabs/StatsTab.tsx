@@ -51,6 +51,7 @@ export default function StatsTab({ status }: { status: Status }) {
                 <th className="num">Avg latency</th>
                 <th className="num">Avg input tok</th>
                 <th className="num">Avg output tok</th>
+                <th className="num">Avg cost</th>
               </tr>
             </thead>
             <tbody>
@@ -61,6 +62,9 @@ export default function StatsTab({ status }: { status: Status }) {
                   <td className="num">{(m.avg_latency_ms / 1000).toFixed(1)}s</td>
                   <td className="num">{m.avg_input_tokens}</td>
                   <td className="num">{m.avg_output_tokens}</td>
+                  <td className="num">
+                    {m.avg_cost_usd != null ? `$${m.avg_cost_usd.toFixed(4)}` : '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>

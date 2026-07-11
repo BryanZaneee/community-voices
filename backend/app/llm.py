@@ -19,6 +19,18 @@ class ModelUnavailable(RuntimeError):
     """The requested model's API key is not configured."""
 
 
+def est_cost_usd(
+    model_key: str, input_tokens: float, output_tokens: float
+) -> float | None:
+    """USD cost from token counts and the registry's per-MTok prices."""
+    cfg = config.MODELS.get(model_key)
+    if cfg is None:
+        return None
+    return (
+        input_tokens * cfg["price_in"] + output_tokens * cfg["price_out"]
+    ) / 1_000_000
+
+
 @dataclass(frozen=True)
 class GenResult:
     text: str
@@ -29,11 +41,7 @@ class GenResult:
 
     @property
     def est_cost_usd(self) -> float:
-        cfg = config.MODELS[self.model_key]
-        return (
-            self.input_tokens * cfg["price_in"]
-            + self.output_tokens * cfg["price_out"]
-        ) / 1_000_000
+        return est_cost_usd(self.model_key, self.input_tokens, self.output_tokens)
 
 
 def _require_key(model_key: str) -> dict:

@@ -30,6 +30,7 @@ def test_generate_and_document_endpoints(client):
     doc = resp.json()
     assert doc["mode"] == "rag" and doc["retrieval_mode"] == "bm25"  # keyless
     assert isinstance(doc["retrieved_chunk_ids"], list)
+    assert doc["cost_usd"] > 0  # derived from tokens x registry prices
 
     listed = client.get("/api/documents").json()
     assert any(d["id"] == doc["id"] for d in listed)
@@ -103,7 +104,8 @@ def test_stats_endpoint_accumulates(client):
     assert after["total_retrievals"] > before["total_retrievals"]
     assert after["chunks_total"] == before["chunks_total"]
     assert after["top_chunks"][0]["retrieved_count"] >= 1
-    assert any(m["model_key"] == "deepseek-v4" for m in after["per_model"])
+    deepseek = next(m for m in after["per_model"] if m["model_key"] == "deepseek-v4")
+    assert deepseek["avg_cost_usd"] > 0
 
 
 def test_spa_served_at_root(client):

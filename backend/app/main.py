@@ -56,6 +56,8 @@ def _row_to_doc(row: sqlite3.Row) -> dict:
     for key in ("queries", "retrieved_chunk_ids"):
         if d.get(key):
             d[key] = json.loads(d[key])
+    cost = llm.est_cost_usd(d["model_key"], d["input_tokens"], d["output_tokens"])
+    d["cost_usd"] = round(cost, 4) if cost is not None else None
     return d
 
 
@@ -300,18 +302,26 @@ def stats() -> dict:
         "LEFT JOIN posts p ON p.id = c.path "
         "ORDER BY s.retrieved_count DESC, s.last_retrieved_at DESC LIMIT 25"
     ).fetchall()
-    per_model = conn.execute(
-        "SELECT model_key, COUNT(*) AS docs, ROUND(AVG(latency_ms)) AS avg_latency_ms, "
-        "  ROUND(AVG(input_tokens)) AS avg_input_tokens, "
-        "  ROUND(AVG(output_tokens)) AS avg_output_tokens "
-        "FROM documents GROUP BY model_key ORDER BY docs DESC"
-    ).fetchall()
+    per_model = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT model_key, COUNT(*) AS docs, ROUND(AVG(latency_ms)) AS avg_latency_ms, "
+            "  ROUND(AVG(input_tokens)) AS avg_input_tokens, "
+            "  ROUND(AVG(output_tokens)) AS avg_output_tokens "
+            "FROM documents GROUP BY model_key ORDER BY docs DESC"
+        ).fetchall()
+    ]
+    for m in per_model:
+        cost = llm.est_cost_usd(
+            m["model_key"], m["avg_input_tokens"] or 0, m["avg_output_tokens"] or 0
+        )
+        m["avg_cost_usd"] = round(cost, 4) if cost is not None else None
     return {
         "total_retrievals": totals["total"],
         "chunks_total": n_chunks,
         "chunks_never_retrieved": n_chunks - totals["chunks_retrieved"],
         "top_chunks": [dict(r) for r in top],
-        "per_model": [dict(r) for r in per_model],
+        "per_model": per_model,
     }
 
 

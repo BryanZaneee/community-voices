@@ -25,6 +25,7 @@ export interface Doc {
   latency_ms: number
   input_tokens: number
   output_tokens: number
+  cost_usd: number | null
 }
 
 export interface JudgeCriteria {
@@ -79,6 +80,7 @@ export interface Stats {
     avg_latency_ms: number
     avg_input_tokens: number
     avg_output_tokens: number
+    avg_cost_usd: number | null
   }[]
 }
 

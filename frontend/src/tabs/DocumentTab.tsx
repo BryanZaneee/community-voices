@@ -13,6 +13,9 @@ export function DocMeta({ doc, models }: { doc: Doc; models: Status['models'] })
       <span className="chip">
         {doc.input_tokens}→{doc.output_tokens} tok
       </span>
+      {doc.cost_usd != null && (
+        <span className="chip">${doc.cost_usd.toFixed(4)}</span>
+      )}
       {doc.retrieved_chunk_ids && (
         <span className="chip teal">{doc.retrieved_chunk_ids.length} chunks</span>
       )}
