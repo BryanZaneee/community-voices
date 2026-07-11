@@ -108,6 +108,25 @@ def test_stats_endpoint_accumulates(client):
     assert deepseek["avg_cost_usd"] > 0
 
 
+def test_prediction_chain_and_bump_accounting(client, stub_llm):
+    """Docs generated oldest-first chain predictions forward, and every
+    retrieved chunk is counted exactly once in retrieval_stats."""
+    weeks = sorted(w["week_start"] for w in client.get("/api/status").json()["weeks"])
+    assert len(weeks) >= 2
+    for week in weeks:
+        assert _generate(client, week_start=week).status_code == 200
+
+    # every doc after the first saw the prior week's predictions in its prompt
+    systems = [c["system"] for c in stub_llm["complete"]]
+    assert "how did they hold up" not in systems[0]
+    assert all("how did they hold up" in s for s in systems[1:])
+    assert all("Prediction alpha" in s for s in systems[1:])
+
+    docs = client.get("/api/documents?limit=100").json()
+    expected = sum(len(d["retrieved_chunk_ids"]) for d in docs if d["mode"] == "rag")
+    assert client.get("/api/stats").json()["total_retrievals"] == expected
+
+
 def test_spa_served_at_root(client):
     resp = client.get("/")
     assert resp.status_code == 200

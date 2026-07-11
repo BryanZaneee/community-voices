@@ -76,11 +76,6 @@ def make_posts(n: int = 16, weeks: int = 3, now: float | None = None) -> tuple[l
 
 
 @pytest.fixture
-def corpus():
-    return make_posts()
-
-
-@pytest.fixture
 def seeded(tmp_path):
     """(conn, vector_index, retriever, weeks) over a real tmp sqlite file."""
     db_path = tmp_path / "test.sqlite"
