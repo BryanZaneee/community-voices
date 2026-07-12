@@ -60,7 +60,9 @@ class VectorIndex:
             return self._conn
         if self.db_path != ":memory:":
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
+        # check_same_thread=False: created in the app lifespan (main thread)
+        # but used from FastAPI's request threadpool, same as db.connect().
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         try:
             _load_sqlite_vec(conn)
