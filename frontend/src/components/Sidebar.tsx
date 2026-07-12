@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import type { Status } from '../api'
 import { ACCENT, communityIdentity, fmt } from '../viewmodel'
 import { DISPLAY, MONO } from '../ui'
@@ -43,16 +42,9 @@ export function Sidebar({
   onGenerate: () => void
   shadeKey: string
 }) {
-  const [identOpen, setIdentOpen] = useState(true)
   const setShaderEl = useMeshShader(shadeKey, true)
   const ident = communityIdentity(status?.subreddit ?? null)
   const running = run.phase === 'run'
-  const activity = status?.activity.slice(-7) ?? []
-  const maxDay = Math.max(1, ...activity.map((a) => a.n_posts))
-  const sorted = [...(status?.activity ?? [])]
-    .map((a) => a.n_posts)
-    .sort((a, b) => a - b)
-  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0
   const models = status?.models_available ?? []
   const canGenerate = models.length > 0 && !running
   const curStage = stages[run.stage]
@@ -123,82 +115,32 @@ export function Sidebar({
             </button>
           </div>
 
-          {/* identity card */}
+          {/* identity card — minimized; the full stats live in the report's
+              community-pulse card */}
           <div
             style={{
               margin: '0 16px 16px', padding: '12px 14px', border: '1px solid #E7E7DD',
               borderRadius: 12, background: 'rgba(252,252,249,.72)', backdropFilter: 'blur(8px)',
+              display: 'flex', alignItems: 'center', gap: 10,
             }}
           >
             <div
-              onClick={() => setIdentOpen(!identOpen)}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+              style={{
+                width: 34, height: 34, borderRadius: '50%', background: '#EEF1DA',
+                border: '1px solid #DEE3B9', display: 'grid', placeItems: 'center',
+                fontFamily: DISPLAY, fontWeight: 700, fontSize: 16, color: '#5A661A', flex: 'none',
+              }}
             >
-              <div
-                style={{
-                  width: 34, height: 34, borderRadius: '50%', background: '#EEF1DA',
-                  border: '1px solid #DEE3B9', display: 'grid', placeItems: 'center',
-                  fontFamily: DISPLAY, fontWeight: 700, fontSize: 16, color: '#5A661A', flex: 'none',
-                }}
-              >
-                {ident.initial}
-              </div>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 14, lineHeight: 1.15 }}>
-                  {ident.name}
-                </div>
-                <div style={{ fontFamily: MONO, fontSize: 10, color: '#8A8C7C' }}>
-                  {identOpen ? `${ident.instance} · fediverse` : 'source of this report'}
-                </div>
-              </div>
-              <span style={{ color: '#8A8C7C', fontSize: 10, flex: 'none' }}>
-                {identOpen ? '▾' : '▸'}
-              </span>
+              {ident.initial}
             </div>
-            {identOpen && status && (
-              <>
-                <div style={{ fontSize: 11.5, lineHeight: 1.45, color: '#6B6D5F', margin: '9px 0 10px' }}>
-                  The fediverse&rsquo;s largest gaming community — its API is open
-                  by design, so this whole pipeline runs with zero credentials.
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 10px' }}>
-                  {[
-                    [fmt(status.week_totals?.n_posts), 'posts this week'],
-                    [fmt(status.week_totals?.n_comments), 'comments'],
-                    [fmt(status.chunks_total), 'chunks embedded'],
-                    [String(status.weeks.length), 'weeks tracked'],
-                  ].map(([v, label]) => (
-                    <div key={label}>
-                      <div style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 600 }}>{v}</div>
-                      <div style={{ fontSize: 9.5, color: '#8A8C7C' }}>{label}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ fontFamily: MONO, fontSize: 8, letterSpacing: '.1em', color: '#A2A494', marginTop: 11 }}>
-                  POSTS / DAY · TRAILING WEEK
-                </div>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 26, margin: '5px 0 7px' }}>
-                  {activity.map((a) => (
-                    <div
-                      key={a.date}
-                      title={`${a.date}: ${a.n_posts} posts`}
-                      style={{
-                        flex: 1,
-                        height: `${Math.max(4, (a.n_posts / maxDay) * 100)}%`,
-                        background: ACCENT,
-                        borderRadius: 1.5,
-                      }}
-                    />
-                  ))}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: ACCENT, flex: 'none' }} />
-                  <div style={{ fontSize: 10, color: '#5F6153', lineHeight: 1.35 }}>
-                    Active weekly discussion — median {median} posts/day
-                  </div>
-                </div>
-              </>
-            )}
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 14, lineHeight: 1.15 }}>
+                {ident.name}
+              </div>
+              <div style={{ fontFamily: MONO, fontSize: 10, color: '#8A8C7C' }}>
+                source of this report
+              </div>
+            </div>
           </div>
 
           {/* nav */}

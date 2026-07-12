@@ -6,7 +6,9 @@ def test_status_shape(client):
     d = client.get("/api/status").json()
     assert d["subreddit"] == "test-community"
     assert len(d["weeks"]) >= 2
-    assert {"week_start", "week_end", "n_posts", "n_chunks"} <= set(d["weeks"][0])
+    assert {"week_start", "week_end", "n_posts", "n_comments", "n_chunks"} <= set(
+        d["weeks"][0]
+    )
     assert d["hybrid"] is False  # keyless fixture
     assert d["can_pull_live"] is False
     assert set(d["models"]) == {

@@ -2,6 +2,7 @@ export interface Week {
   week_start: string
   week_end: string
   n_posts: number
+  n_comments: number
   n_chunks: number
 }
 
@@ -40,6 +41,7 @@ export interface Status {
 export interface ReportTopic {
   name: string
   summary: string
+  detail?: string | null // deeper dive; absent on docs generated before it
   share_pct: number | null
   threads: number | null
 }

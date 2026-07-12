@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { Doc, Status, Week } from '../api'
 import type { RunState, StageUi } from '../runstate'
@@ -35,6 +36,7 @@ export function ReportTab({
   error: string | null
 }) {
   const setShaderEl = useMeshShader(shadeKey)
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const range = week ? weekRange(week.week_start, week.week_end) : '—'
   const cur = stages[run.stage]
   const report = doc?.report_json ?? null
@@ -215,41 +217,73 @@ export function ReportTab({
                 </p>
               </div>
 
-              <PostsPerDay status={status} week={week} />
-
               <div style={{ ...kicker, fontSize: 10.5, letterSpacing: '.16em', marginBottom: 14 }}>
-                WHAT THEY TALKED ABOUT
+                TRENDING TOPICS
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 34 }}>
-                {report.topics.map((t, i) => (
-                  <div key={t.name} style={card()}>
-                    <div
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 9,
-                        marginBottom: 7, flexWrap: 'wrap',
-                      }}
-                    >
-                      <span
+                {report.topics.map((t, i) => {
+                  const open = expanded.has(i)
+                  return (
+                    <div key={t.name} style={card()}>
+                      <div
                         style={{
-                          width: 8, height: 8, borderRadius: '50%', flex: 'none',
-                          background: CLUSTER_COLORS[i % CLUSTER_COLORS.length],
+                          display: 'flex', alignItems: 'center', gap: 9,
+                          marginBottom: 7, flexWrap: 'wrap',
                         }}
-                      />
-                      <span style={{ fontFamily: DISPLAY, fontSize: 15.5, fontWeight: 600, letterSpacing: '-.01em' }}>
-                        {t.name}
-                      </span>
-                      {t.threads != null && (
-                        <span style={pill('#F4F4EF', '#6B6D5F')}>{t.threads} threads</span>
+                      >
+                        <span
+                          style={{
+                            width: 8, height: 8, borderRadius: '50%', flex: 'none',
+                            background: CLUSTER_COLORS[i % CLUSTER_COLORS.length],
+                          }}
+                        />
+                        <span style={{ fontFamily: DISPLAY, fontSize: 15.5, fontWeight: 600, letterSpacing: '-.01em' }}>
+                          {t.name}
+                        </span>
+                        {t.threads != null && (
+                          <span style={pill('#F4F4EF', '#6B6D5F')}>{t.threads} threads</span>
+                        )}
+                        {t.share_pct != null && (
+                          <span style={pill('#EEF1DA', '#3A421A')}>{t.share_pct}% of discussion</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12.8, lineHeight: 1.62, color: '#3F4136' }}>
+                        <RichText text={t.summary} />
+                      </div>
+                      {t.detail && open && (
+                        <div
+                          style={{
+                            fontSize: 12.8, lineHeight: 1.62, color: '#3F4136',
+                            marginTop: 9, paddingTop: 9, borderTop: '1px solid #F0F0E7',
+                            animation: 'ccFade .3s ease',
+                          }}
+                        >
+                          <RichText text={t.detail} />
+                        </div>
                       )}
-                      {t.share_pct != null && (
-                        <span style={pill('#EEF1DA', '#3A421A')}>{t.share_pct}% of discussion</span>
+                      {t.detail && (
+                        <button
+                          onClick={() =>
+                            setExpanded((prev) => {
+                              const next = new Set(prev)
+                              if (next.has(i)) next.delete(i)
+                              else next.add(i)
+                              return next
+                            })
+                          }
+                          className="link-btn"
+                          style={{
+                            border: 'none', background: 'none', padding: 0, marginTop: 8,
+                            fontFamily: MONO, fontSize: 10, fontWeight: 600,
+                            color: '#5A661A', cursor: 'pointer', textDecoration: 'underline',
+                          }}
+                        >
+                          {open ? 'Show less ▴' : 'Read more ▾'}
+                        </button>
                       )}
                     </div>
-                    <div style={{ fontSize: 12.8, lineHeight: 1.62, color: '#3F4136' }}>
-                      <RichText text={t.summary} />
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               {report.standouts.length > 0 && (
@@ -359,6 +393,8 @@ export function ReportTab({
                 </div>
               </div>
 
+              <CommunityPulse status={status} week={week} />
+
               <div style={{ fontFamily: MONO, fontSize: 10, color: '#A2A494', lineHeight: 1.6 }}>
                 Grounded on {chunksUsed} retrieved chunks ·{' '}
                 {citationCount(doc.content_md)} cited titles · {doc.model_key} ·{' '}
@@ -391,7 +427,9 @@ export function ReportTab({
   )
 }
 
-function PostsPerDay({ status, week }: { status: Status | null; week: Week | null }) {
+/** Posts/day chart plus the community identity stats that used to live in
+ * the sidebar card. */
+function CommunityPulse({ status, week }: { status: Status | null; week: Week | null }) {
   if (!status || !week) return null
   const days = status.activity.filter(
     (a) => a.date >= week.week_start && a.date < week.week_end,
@@ -399,20 +437,44 @@ function PostsPerDay({ status, week }: { status: Status | null; week: Week | nul
   if (days.length === 0) return null
   const rawMax = Math.max(...days.map((d) => d.n_posts), 1)
   const yMax = Math.max(10, Math.ceil(rawMax / 10) * 10)
+  const sorted = status.activity.map((a) => a.n_posts).sort((a, b) => a - b)
+  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0
   return (
-    <div style={{ ...card(), minWidth: 0, marginBottom: 30 }}>
+    <div style={{ ...card(), minWidth: 0, marginBottom: 26 }}>
       <div
         style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-          flexWrap: 'wrap', gap: 8, marginBottom: 14,
+          flexWrap: 'wrap', gap: 8, marginBottom: 10,
         }}
       >
         <div style={kicker}>
-          POSTS / DAY — WEEK COVERED · {weekRange(week.week_start, week.week_end).toUpperCase()}
+          COMMUNITY PULSE · POSTS / DAY · {weekRange(week.week_start, week.week_end).toUpperCase()}
         </div>
         <div style={{ fontSize: 10, color: '#A2A494' }}>
           daily posting volume in the covered window
         </div>
+      </div>
+      <div style={{ fontSize: 12, lineHeight: 1.5, color: '#6B6D5F', maxWidth: 560, marginBottom: 14 }}>
+        The fediverse&rsquo;s largest gaming community — its API is open by
+        design, so this whole pipeline runs with zero credentials.
+      </div>
+      <div
+        style={{
+          display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: '6px 10px', marginBottom: 16,
+        }}
+      >
+        {[
+          [fmt(week.n_posts), 'posts this week'],
+          [fmt(week.n_comments), 'comments'],
+          [fmt(status.chunks_total), 'chunks embedded'],
+          [String(status.weeks.length), 'weeks tracked'],
+        ].map(([v, label]) => (
+          <div key={label}>
+            <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600 }}>{v}</div>
+            <div style={{ fontSize: 9.5, color: '#8A8C7C' }}>{label}</div>
+          </div>
+        ))}
       </div>
       <div style={{ display: 'flex', gap: 10 }}>
         <div
@@ -451,6 +513,12 @@ function PostsPerDay({ status, week }: { status: Status | null; week: Week | nul
               </div>
             </div>
           ))}
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12 }}>
+        <div style={{ width: 7, height: 7, borderRadius: '50%', background: ACCENT, flex: 'none' }} />
+        <div style={{ fontSize: 10.5, color: '#5F6153', lineHeight: 1.35 }}>
+          Active weekly discussion — median {median} posts/day
         </div>
       </div>
     </div>

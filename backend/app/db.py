@@ -154,6 +154,7 @@ def week_windows(conn: sqlite3.Connection) -> list[dict]:
         start = end - timedelta(days=7)
         stats = conn.execute(
             "SELECT COUNT(*) AS n_posts, "
+            "  COALESCE(SUM(num_comments), 0) AS n_comments, "
             "  (SELECT COUNT(*) FROM chunks c JOIN posts p2 ON c.path = p2.id "
             "   WHERE p2.created_utc >= ? AND p2.created_utc < ?) AS n_chunks "
             "FROM posts WHERE created_utc >= ? AND created_utc < ?",
@@ -165,6 +166,7 @@ def week_windows(conn: sqlite3.Connection) -> list[dict]:
                     "week_start": start.date().isoformat(),
                     "week_end": end.date().isoformat(),
                     "n_posts": stats["n_posts"],
+                    "n_comments": stats["n_comments"],
                     "n_chunks": stats["n_chunks"],
                 }
             )

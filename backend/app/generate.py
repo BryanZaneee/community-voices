@@ -40,10 +40,11 @@ REPORT_SCHEMA = {
                 "properties": {
                     "name": {"type": "string"},
                     "summary": {"type": "string"},
+                    "detail": {"type": "string"},
                     "share_pct": {"type": ["integer", "null"]},
                     "threads": {"type": ["integer", "null"]},
                 },
-                "required": ["name", "summary", "share_pct", "threads"],
+                "required": ["name", "summary", "detail", "share_pct", "threads"],
                 "additionalProperties": False,
             },
         },
@@ -92,7 +93,9 @@ Respond with a single JSON object with these fields:
 - headline: punchy 6-12 word title capturing the week
 - lede: 2-3 sentence overview paragraph
 - topics: 3-5 themes the community discussed. Each has: name, summary
-  (3-4 concrete sentences), share_pct (your estimate of the theme's integer
+  (3-4 concrete sentences), detail (a deeper 4-6 sentence dive for readers
+  who expand the topic — more threads, reactions, and specifics not already
+  in the summary), share_pct (your estimate of the theme's integer
   percentage share of the week's discussion; all topics together at most 100),
   threads (estimated thread count, or null if you cannot estimate)
 - standouts: 3-5 one-sentence strings on individual notable posts
@@ -149,6 +152,8 @@ def build_markdown(community: str, week_range: str, report: dict) -> str:
         if meta:
             lines.append(f"_{meta}_")
         lines += ["", t["summary"]]
+        if t.get("detail"):
+            lines += ["", t["detail"]]
     lines += ["", "## Standout threads", ""]
     lines += [f"- {s}" for s in report["standouts"]]
     if report.get("prediction_review"):
