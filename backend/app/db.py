@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 def connect(db_path: Path | str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 5000")  # writers vs readers on other conns
     _load_sqlite_vec(conn)  # so joins against vec_chunks work on this conn too
     conn.executescript(SCHEMA)
     # Migrate DBs created before report_json existed (CREATE IF NOT EXISTS

@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -64,9 +64,20 @@ def _row_to_doc(row: sqlite3.Row) -> dict:
     return d
 
 
+def read_conn():
+    """Fresh connection per read request. The single lifespan connection is
+    reserved for the mutating endpoints; sharing it across FastAPI's
+    request threadpool raced sqlite's statement cache under concurrent
+    page-load reads (InterfaceError)."""
+    conn = db.connect(config.DB_PATH)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 @app.get("/api/status")
-def status() -> dict:
-    conn = state["conn"]
+def status(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
     weeks = db.week_windows(conn)
     ingest_report = db.get_meta(conn, "ingest_report")
     return {
@@ -219,11 +230,10 @@ def compare_endpoint(body: CompareBody) -> dict:
         )
     except (llm.ModelUnavailable, ValueError) as exc:
         raise HTTPException(400, str(exc))
-    return _comparison(comp_id)
+    return _comparison(comp_id, state["conn"])
 
 
-def _comparison(comp_id: int) -> dict:
-    conn = state["conn"]
+def _comparison(comp_id: int, conn: sqlite3.Connection) -> dict:
     row = conn.execute(
         "SELECT * FROM comparisons WHERE id = ?", (comp_id,)
     ).fetchone()
@@ -249,8 +259,9 @@ def _comparison(comp_id: int) -> dict:
 
 
 @app.get("/api/comparisons/latest")
-def latest_comparison(kind: str | None = None) -> dict:
-    conn = state["conn"]
+def latest_comparison(
+    kind: str | None = None, conn: sqlite3.Connection = Depends(read_conn)
+) -> dict:
     sql = "SELECT id FROM comparisons"
     args: tuple = ()
     if kind:
@@ -259,12 +270,15 @@ def latest_comparison(kind: str | None = None) -> dict:
     row = conn.execute(sql + " ORDER BY id DESC LIMIT 1", args).fetchone()
     if row is None:
         raise HTTPException(404, "no comparisons yet")
-    return _comparison(row["id"])
+    return _comparison(row["id"], conn)
 
 
 @app.get("/api/documents")
-def list_documents(week_start: str | None = None, limit: int = 20) -> list[dict]:
-    conn = state["conn"]
+def list_documents(
+    week_start: str | None = None,
+    limit: int = 20,
+    conn: sqlite3.Connection = Depends(read_conn),
+) -> list[dict]:
     sql = "SELECT * FROM documents"
     args: list = []
     if week_start:
@@ -276,8 +290,10 @@ def list_documents(week_start: str | None = None, limit: int = 20) -> list[dict]
 
 
 @app.get("/api/documents/{doc_id}")
-def get_document(doc_id: int) -> dict:
-    row = state["conn"].execute(
+def get_document(
+    doc_id: int, conn: sqlite3.Connection = Depends(read_conn)
+) -> dict:
+    row = conn.execute(
         "SELECT * FROM documents WHERE id = ?", (doc_id,)
     ).fetchone()
     if row is None:
@@ -286,8 +302,10 @@ def get_document(doc_id: int) -> dict:
 
 
 @app.get("/api/documents/{doc_id}/download")
-def download_document(doc_id: int) -> Response:
-    row = state["conn"].execute(
+def download_document(
+    doc_id: int, conn: sqlite3.Connection = Depends(read_conn)
+) -> Response:
+    row = conn.execute(
         "SELECT * FROM documents WHERE id = ?", (doc_id,)
     ).fetchone()
     if row is None:
@@ -326,8 +344,7 @@ def ingest_week() -> dict:
 
 
 @app.get("/api/embeddings")
-def embeddings() -> dict:
-    conn = state["conn"]
+def embeddings(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
     pca_raw = db.get_meta(conn, "pca")
     if not pca_raw:
         return {"points": []}
@@ -381,8 +398,7 @@ def embeddings() -> dict:
 
 
 @app.get("/api/stats")
-def stats() -> dict:
-    conn = state["conn"]
+def stats(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
     totals = conn.execute(
         "SELECT COALESCE(SUM(retrieved_count), 0) AS total, "
         "COUNT(*) AS chunks_retrieved FROM retrieval_stats"
