@@ -353,11 +353,14 @@ def run_ingest(
     db.set_meta(conn, "source", source)
     report.update(
         {
+            "comments": sum(len(v) for v in comments_by_id.values()),
             "comment_fetches": len(wanting_comments),
             "fetch_s": round(fetch_s, 1),
             "index_s": round(time.perf_counter() - t0, 1),
         }
     )
+    # The ingestion tab's funnel/latest-run card reads this back after restart.
+    db.set_meta(conn, "ingest_report", json.dumps(report))
     return report
 
 

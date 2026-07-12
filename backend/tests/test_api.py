@@ -13,6 +13,13 @@ def test_status_shape(client):
         "claude-opus-4-8", "claude-haiku-4-5", "deepseek-v4", "deepseek-v4-flash",
     }
     assert d["models_available"] == []  # keyless
+    # sidebar identity-card fields
+    assert len(d["activity"]) == 14
+    assert sum(a["n_posts"] for a in d["activity"]) > 0
+    assert d["week_totals"]["n_posts"] == d["weeks"][0]["n_posts"]
+    assert d["week_totals"]["n_comments"] > 0
+    assert d["chunks_total"] > 0
+    assert d["source"] == "lemmy"  # default when never set
 
 
 def _week(client) -> str:

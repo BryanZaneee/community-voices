@@ -102,3 +102,24 @@ def test_ingest_writes_meta_and_pca(tmp_path):
     assert db.get_meta(conn, "embedding_dim") == str(DIM)
     assert db.get_meta(conn, "pca") is not None
     assert db.get_meta(conn, "ingested_at") is not None
+
+
+def test_run_ingest_persists_report_meta(tmp_path, monkeypatch):
+    import json
+
+    conn = db.connect(tmp_path / "r.sqlite")
+    vec = VectorIndex(tmp_path / "r.sqlite", dim=DIM)
+    posts, comments = make_posts(n=6)
+    monkeypatch.setattr(
+        ingest, "fetch_top_posts_lemmy", lambda s, c, w, p: posts
+    )
+    monkeypatch.setattr(
+        ingest, "fetch_comments_lemmy", lambda s, p: comments[p["name"]]
+    )
+    report = ingest.run_ingest(
+        conn, vec, FakeEmbeddingProvider(dim=DIM), "test", source="lemmy"
+    )
+    stored = json.loads(db.get_meta(conn, "ingest_report"))
+    assert stored == report
+    assert stored["posts"] == 6 and stored["comments"] > 0
+    assert db.get_meta(conn, "source") == "lemmy"

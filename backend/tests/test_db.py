@@ -58,3 +58,28 @@ def test_empty_db_has_no_windows(tmp_path):
     conn = db.connect(tmp_path / "empty.sqlite")
     assert db.week_windows(conn) == []
     conn.close()
+
+
+def test_daily_post_counts_zero_filled(seeded):
+    conn, _, _, _ = seeded
+    days = db.daily_post_counts(conn, days=14)
+    assert len(days) == 14
+    assert days == sorted(days, key=lambda d: d["date"])  # oldest first
+    total_in_range = sum(d["n_posts"] for d in days)
+    assert total_in_range > 0
+    assert any(d["n_posts"] == 0 for d in days) or total_in_range == 16
+
+
+def test_daily_post_counts_empty_db(tmp_path):
+    conn = db.connect(tmp_path / "empty.sqlite")
+    assert db.daily_post_counts(conn) == []
+    conn.close()
+
+
+def test_week_totals_match_windows(seeded):
+    conn, _, _, weeks = seeded
+    windows = {w["week_start"]: w for w in db.week_windows(conn)}
+    for week_start in weeks:
+        totals = db.week_totals(conn, week_start)
+        assert totals["n_posts"] == windows[week_start]["n_posts"]
+        assert totals["n_comments"] > 0

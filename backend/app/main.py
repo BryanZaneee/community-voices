@@ -67,11 +67,19 @@ def _row_to_doc(row: sqlite3.Row) -> dict:
 @app.get("/api/status")
 def status() -> dict:
     conn = state["conn"]
+    weeks = db.week_windows(conn)
+    ingest_report = db.get_meta(conn, "ingest_report")
     return {
         "subreddit": db.get_meta(conn, "subreddit"),
+        "source": db.get_meta(conn, "source") or "lemmy",
         "ingested_at": db.get_meta(conn, "ingested_at"),
         "embedding_model": db.get_meta(conn, "embedding_model"),
-        "weeks": db.week_windows(conn),
+        "embedding_dim": db.get_meta(conn, "embedding_dim"),
+        "weeks": weeks,
+        "activity": db.daily_post_counts(conn),
+        "week_totals": db.week_totals(conn, weeks[0]["week_start"]) if weeks else None,
+        "chunks_total": conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
+        "last_ingest": json.loads(ingest_report) if ingest_report else None,
         "hybrid": state["retriever"].embedding is not None,
         "can_pull_live": bool(os.environ.get("VOYAGE_API_KEY"))
         and (

@@ -171,6 +171,41 @@ def week_windows(conn: sqlite3.Connection) -> list[dict]:
     return windows
 
 
+def daily_post_counts(conn: sqlite3.Connection, days: int = 14) -> list[dict]:
+    """Posts per UTC day over the trailing `days`, anchored at the newest
+    post (zero-filled) — the sidebar activity mini-chart."""
+    row = conn.execute("SELECT MAX(created_utc) AS hi FROM posts").fetchone()
+    if row["hi"] is None:
+        return []
+    end = (
+        datetime.fromtimestamp(row["hi"], tz=timezone.utc) + timedelta(days=1)
+    ).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = end - timedelta(days=days)
+    counts = {
+        r["d"]: r["n"]
+        for r in conn.execute(
+            "SELECT date(created_utc, 'unixepoch') AS d, COUNT(*) AS n "
+            "FROM posts WHERE created_utc >= ? AND created_utc < ? GROUP BY d",
+            (start.timestamp(), end.timestamp()),
+        )
+    }
+    days_iso = [(start + timedelta(days=i)).date().isoformat() for i in range(days)]
+    return [{"date": d, "n_posts": counts.get(d, 0)} for d in days_iso]
+
+
+def week_totals(conn: sqlite3.Connection, week_start: str) -> dict:
+    """Post and comment totals for one [week_start, week_start+7d) window."""
+    start = datetime.fromisoformat(week_start).replace(tzinfo=timezone.utc)
+    end = start + timedelta(days=7)
+    row = conn.execute(
+        "SELECT COUNT(*) AS n_posts, "
+        "  COALESCE(SUM(num_comments), 0) AS n_comments "
+        "FROM posts WHERE created_utc >= ? AND created_utc < ?",
+        (start.timestamp(), end.timestamp()),
+    ).fetchone()
+    return {"n_posts": row["n_posts"], "n_comments": row["n_comments"]}
+
+
 def posts_in_week(conn: sqlite3.Connection, week_start: str) -> list[sqlite3.Row]:
     """Posts whose created_utc falls in [week_start, week_start+7d)."""
     start = datetime.fromisoformat(week_start).replace(tzinfo=timezone.utc)
