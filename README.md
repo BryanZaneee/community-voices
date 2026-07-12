@@ -4,7 +4,7 @@
 
 A full-stack RAG application that listens to a gaming community and writes a weekly
 **Community Voices Document**: what the community talked about, the standout
-threads, how last week's predictions held up, and what it will talk about next
+threads, and what it will talk about next
 week — grounded in the community's actual posts via retrieval-augmented
 generation, with built-in A/B testing of the whole idea.
 
@@ -78,8 +78,8 @@ Lemmy c/games (top posts + comments)   FastAPI                    React SPA
 - **Generation**: 4 models via one registry — Claude Opus 4.8, Claude Haiku
   4.5, DeepSeek V4, DeepSeek V4 Flash — each generation records latency, token
   usage, and estimated cost. The model emits a structured JSON report
-  (headline, topics with discussion share, standout threads, prediction
-  review, confidence-scored predictions); the exported markdown is built from
+  (headline, topics with discussion share and expandable detail, standout
+  threads, confidence-scored predictions); the exported markdown is built from
   it server-side. `GET /api/generate/stream` is the SSE variant that drives
   the UI's live five-stage pipeline animation.
 - **Embedding map**: the stored 2-D projection uses UMAP when `umap-learn` is
@@ -164,12 +164,11 @@ CI on every push:
   embeddings, retriever (exact RRF math, mode switches, keyless degradation,
   week filtering), PCA, db helpers, ingest (markdown mapping, Lemmy field
   mapping, idempotency), llm (cost math, judge fallback chain), generation
-  (facet retrieval, prompts, prediction-review chaining, persistence).
+  (facet retrieval, prompts, persistence).
 - **API** — every endpoint through FastAPI's TestClient: happy paths, 400/404
   paths, download headers, stats accumulation, the SSE stream's event order,
-  the SPA mount, plus the product story end-to-end: weekly docs oldest-first
-  (asserting the prediction-review chain lands in each prompt) with every
-  retrieval counted exactly once.
+  the SPA mount, plus the product story end-to-end: docs across every week
+  with every retrieval counted exactly once.
 - **Regression** — pins bugs fixed during development (week-boundary
   alignment) plus a golden chunk-ID snapshot protecting the committed vector
   store.
@@ -189,7 +188,6 @@ CI on every push:
 | Overly-large-data handling | caps, thresholds, truncation (see The crawler; funnel on the Ingestion tab) |
 | A/B testing, with and without RAG | A/B tab: citation highlighting, judge scorecard, run metrics |
 
-Also included: a month of history with per-week documents, a
-prediction-vs-reality review section, 4-model comparison with cost/latency
+Also included: a month of history with per-week documents, a 4-model comparison with cost/latency
 stats, retrieval-mode comparison with chunk overlap, hybrid RRF retrieval,
 LLM-judge scoring, zero-key read-only demo mode, and a live-scrape button.

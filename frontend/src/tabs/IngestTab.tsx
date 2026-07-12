@@ -67,28 +67,16 @@ export function IngestTab({
 
   return (
     <div>
-      {/* status bar */}
+      {/* run-now row */}
       <div
         style={{
-          ...card('16px 20px'),
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          gap: 16, marginBottom: 14, flexWrap: 'wrap',
+          display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+          gap: 12, marginBottom: 14,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span
-            style={{
-              width: 9, height: 9, borderRadius: '50%', background: ACCENT,
-              animation: 'ccPulse 2.4s ease-in-out infinite',
-            }}
-          />
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>Automated weekly crawl</div>
-            <div style={{ fontFamily: MONO, fontSize: 10.5, color: '#8A8C7C', marginTop: 2 }}>
-              cron 0 6 * * 1 · idempotent re-runs · last ingest {ingested ?? 'never'}
-            </div>
-          </div>
-        </div>
+        <span style={{ fontFamily: MONO, fontSize: 10.5, color: '#8A8C7C' }}>
+          last ingest {ingested ?? 'never'}
+        </span>
         <button
           onClick={onRunNow}
           disabled={!canPull || busy}

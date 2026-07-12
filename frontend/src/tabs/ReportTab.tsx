@@ -6,12 +6,6 @@ import { useMeshShader } from '../useMeshShader'
 import { ACCENT, citationCount, CLUSTER_COLORS, fmt, fmtSecs, weekRange } from '../viewmodel'
 import { card, DISPLAY, kicker, MONO, pill, RichText } from '../ui'
 
-const GRADE_STYLE: Record<string, { bg: string; fg: string }> = {
-  hit: { bg: '#EEF1DA', fg: '#3A421A' },
-  partial: { bg: '#F5EEDD', fg: '#8A6A20' },
-  miss: { bg: '#F4F4EF', fg: '#6B6D5F' },
-}
-
 export function ReportTab({
   status,
   week,
@@ -296,29 +290,6 @@ export function ReportTab({
                         <span><RichText text={s} /></span>
                       </div>
                     ))}
-                  </div>
-                </div>
-              )}
-
-              {report.prediction_review && report.prediction_review.length > 0 && (
-                <div style={{ ...card(), marginBottom: 26 }}>
-                  <div style={{ ...kicker, marginBottom: 12 }}>
-                    LAST WEEK&rsquo;S PREDICTIONS — HOW DID THEY HOLD UP?
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {report.prediction_review.map((r) => {
-                      const g = GRADE_STYLE[r.grade] ?? GRADE_STYLE.miss
-                      return (
-                        <div key={r.prediction} style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
-                          <span style={{ ...pill(g.bg, g.fg), flex: 'none', textTransform: 'uppercase' }}>
-                            {r.grade}
-                          </span>
-                          <div style={{ fontSize: 12.6, lineHeight: 1.55, color: '#3F4136' }}>
-                            <span style={{ fontWeight: 600 }}>{r.prediction}</span> — <RichText text={r.evidence} />
-                          </div>
-                        </div>
-                      )
-                    })}
                   </div>
                 </div>
               )}

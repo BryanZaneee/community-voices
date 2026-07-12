@@ -49,19 +49,6 @@ REPORT_SCHEMA = {
             },
         },
         "standouts": {"type": "array", "items": {"type": "string"}},
-        "prediction_review": {
-            "type": ["array", "null"],
-            "items": {
-                "type": "object",
-                "properties": {
-                    "prediction": {"type": "string"},
-                    "grade": {"type": "string", "enum": ["hit", "partial", "miss"]},
-                    "evidence": {"type": "string"},
-                },
-                "required": ["prediction", "grade", "evidence"],
-                "additionalProperties": False,
-            },
-        },
         "predictions": {
             "type": "array",
             "minItems": 3,
@@ -79,10 +66,7 @@ REPORT_SCHEMA = {
             },
         },
     },
-    "required": [
-        "headline", "lede", "topics", "standouts",
-        "prediction_review", "predictions",
-    ],
+    "required": ["headline", "lede", "topics", "standouts", "predictions"],
     "additionalProperties": False,
 }
 
@@ -99,7 +83,6 @@ Respond with a single JSON object with these fields:
   percentage share of the week's discussion; all topics together at most 100),
   threads (estimated thread count, or null if you cannot estimate)
 - standouts: 3-5 one-sentence strings on individual notable posts
-- prediction_review: {prediction_review_section}
 - predictions: 3-5 forecasts for next week. Each has: title, confidence
   (integer 0-100), rationale (one sentence of reasoning based on observed
   momentum), signals (2-3 short strings naming the momentum you observed)
@@ -120,22 +103,9 @@ your best guess at what was discussed and what comes next. Set share_pct and
 threads to null — you cannot measure them. Do not invent specific post titles
 or exact numbers; be honest, generalities are acceptable."""
 
-PREDICTION_REVIEW = """grade last week's predictions — how did they hold up?
-The previous week's document predicted:
-{previous_predictions}
-One entry per prediction: prediction (short restatement), grade (hit, partial,
-or miss), evidence (one sentence grounded in this week's discussions)."""
-
-NO_REVIEW = "null (there is no prior week's document to review)"
-
-
 def build_markdown(community: str, week_range: str, report: dict) -> str:
     """Render the structured report as the exported markdown document.
-
-    The first line and the section markers are load-bearing: tests pin the
-    "# Community Voices" prefix, and _previous_predictions() slices prior
-    docs at "## Predictions for next week".
-    """
+    Tests pin the "# Community Voices" first line."""
     lines = [f"# Community Voices — {community} — Week of {week_range}", ""]
     lines += [f"**{report['headline']}**", "", report["lede"], ""]
     lines.append("## What the community talked about")
@@ -156,12 +126,6 @@ def build_markdown(community: str, week_range: str, report: dict) -> str:
             lines += ["", t["detail"]]
     lines += ["", "## Standout threads", ""]
     lines += [f"- {s}" for s in report["standouts"]]
-    if report.get("prediction_review"):
-        lines += ["", "## Last week's predictions — how did they hold up?", ""]
-        lines += [
-            f"- **{r['prediction']}** — {r['grade']}: {r['evidence']}"
-            for r in report["prediction_review"]
-        ]
     lines += ["", "## Predictions for next week"]
     for p in report["predictions"]:
         lines += ["", f"### {p['title']} — {p['confidence']}% confidence", ""]
@@ -226,25 +190,6 @@ def _context_block(conn: sqlite3.Connection, chunks: list) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def _previous_predictions(
-    conn: sqlite3.Connection, community: str, week_start: str
-) -> str | None:
-    """Predictions section of the newest RAG doc for the preceding week."""
-    prev_start = (
-        datetime.fromisoformat(week_start) - timedelta(days=7)
-    ).date().isoformat()
-    row = conn.execute(
-        "SELECT content_md FROM documents WHERE subreddit = ? AND week_start = ? "
-        "AND mode = 'rag' ORDER BY id DESC LIMIT 1",
-        (community, prev_start),
-    ).fetchone()
-    if row is None:
-        return None
-    md = row["content_md"]
-    marker = "## Predictions for next week"
-    return md[md.index(marker):] if marker in md else None
-
-
 def generate_document(
     conn: sqlite3.Connection,
     retriever: Retriever,
@@ -265,16 +210,8 @@ def generate_document(
         datetime.fromisoformat(week_start) + timedelta(days=7)
     ).date().isoformat()
 
-    prev = _previous_predictions(conn, community, week_start)
-    review = (
-        PREDICTION_REVIEW.format(previous_predictions=prev) if prev else NO_REVIEW
-    )
     week_range = f"{week_start} to {week_end}"
-    system = DOC_SYSTEM.format(
-        community=community,
-        week_range=week_range,
-        prediction_review_section=review,
-    )
+    system = DOC_SYSTEM.format(community=community, week_range=week_range)
 
     chunks: list = []
     meta: dict = {}

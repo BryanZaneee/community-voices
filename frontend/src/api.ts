@@ -53,18 +53,11 @@ export interface ReportPrediction {
   signals: string[]
 }
 
-export interface ReportReview {
-  prediction: string
-  grade: 'hit' | 'partial' | 'miss'
-  evidence: string
-}
-
 export interface Report {
   headline: string
   lede: string
   topics: ReportTopic[]
   standouts: string[]
-  prediction_review: ReportReview[] | null
   predictions: ReportPrediction[]
 }
 

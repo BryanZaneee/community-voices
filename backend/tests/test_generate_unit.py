@@ -3,9 +3,7 @@ import json
 
 import pytest
 
-from app import db, generate
-
-from tests.conftest import STUB_DOC
+from app import generate
 
 
 def test_retrieve_context_dedupes_caps_and_bumps(seeded):
@@ -90,43 +88,6 @@ def test_baseline_has_no_context_and_no_chunks(seeded, stub_llm):
     assert row["retrieved_chunk_ids"] is None and row["retrieval_mode"] is None
     assert "<context>" not in stub_llm["complete"][-1]["user"]
     assert "NO access" in stub_llm["complete"][-1]["user"]
-
-
-def test_prediction_review_uses_adjacent_prior_week(seeded, stub_llm):
-    conn, _, retriever, weeks = seeded
-    older, newer = weeks[1], weeks[0]  # weeks is newest-first
-    generate.generate_document(
-        conn, retriever, week_start=older, mode="rag", model_key="deepseek-v4"
-    )
-    generate.generate_document(
-        conn, retriever, week_start=newer, mode="rag", model_key="deepseek-v4"
-    )
-    system = stub_llm["complete"][-1]["system"]
-    assert "how did they hold up" in system
-    assert "Prediction alpha" in system  # prior week's predictions embedded
-
-
-def test_no_review_without_prior_week(seeded, stub_llm):
-    conn, _, retriever, weeks = seeded
-    generate.generate_document(
-        conn, retriever, week_start=weeks[0], mode="rag", model_key="deepseek-v4"
-    )
-    assert "how did they hold up" not in stub_llm["complete"][-1]["system"]
-
-
-def test_previous_predictions_extracts_section(seeded):
-    conn, _, _, weeks = seeded
-    older, newer = weeks[1], weeks[0]
-    with conn:
-        conn.execute(
-            "INSERT INTO documents (mode, model_key, week_start, subreddit, content_md) "
-            "VALUES ('rag', 'm', ?, 'test-community', ?)",
-            (older, STUB_DOC.format(week=older, title="t")),
-        )
-    community = db.get_meta(conn, "subreddit")
-    section = generate._previous_predictions(conn, community, newer)
-    assert section.startswith("## Predictions for next week")
-    assert "Prediction alpha" in section
 
 
 def test_empty_week_raises(seeded, stub_llm):

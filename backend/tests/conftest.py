@@ -124,7 +124,6 @@ def stub_report(week: str, title: str) -> dict:
              "detail": "More pricing specifics.", "share_pct": 20, "threads": 6},
         ],
         "standouts": ["A big thread happened."],
-        "prediction_review": None,
         "predictions": [
             {"title": f"Prediction alpha for {week}: more layoffs talk",
              "confidence": 72, "rationale": "Momentum from this week.",
