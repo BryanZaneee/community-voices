@@ -113,8 +113,9 @@ predictions on the momentum you observe in the context.
 
 BASELINE_INSTRUCTIONS = """You have NO access to this week's actual discussions.
 Using only your general knowledge of this community and gaming at large, write
-your best guess at what was discussed and what comes next. Do not invent
-specific post titles or exact numbers; be honest generalities are acceptable."""
+your best guess at what was discussed and what comes next. Set share_pct and
+threads to null — you cannot measure them. Do not invent specific post titles
+or exact numbers; be honest, generalities are acceptable."""
 
 PREDICTION_REVIEW = """grade last week's predictions — how did they hold up?
 The previous week's document predicted:
