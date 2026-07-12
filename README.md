@@ -9,16 +9,17 @@ week — grounded in the community's actual posts via retrieval-augmented
 generation, with built-in A/B testing of the whole idea.
 
 The community is **c/games on lemmy.world** — the fediverse's largest gaming
-community — chosen deliberately: its API is public by design, so evaluators can
+community — chosen deliberately: its API is public by design, so anyone can
 run the crawler and the live week-pull with **zero credentials**. (The app was
 originally built against r/gaming; Reddit's 2026 Data API approval gate — manual
 review, weeks-long waits, unauthenticated `.json`/RSS both blocked — made
-evaluator-reproducible ingestion impossible. The Reddit OAuth crawler remains in
-the repo: `.venv/bin/python -m app.ingest gaming --source reddit`.)
+reproducible ingestion impossible for other people trying the project. The
+Reddit OAuth crawler remains in the repo:
+`.venv/bin/python -m app.ingest gaming --source reddit`.)
 
-![Document tab](docs/document-tab.png)
-![Compare tab](docs/compare-tab.png)
+![Report tab](docs/report-tab.png)
 ![Embeddings tab](docs/embeddings-tab.png)
+![A/B tab](docs/ab-tab.png)
 
 ## Quick start
 
@@ -34,9 +35,9 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
 The repo ships with a pre-ingested database (`data/community.sqlite`) holding a
-month of c/games activity (200 posts, 455 embedded chunks, 5 week windows) plus
-pre-generated weekly documents and one judged comparison of each kind, so the
-app demos **with zero API keys**. Add keys to unlock more:
+month of c/games activity (~250 posts, 506 embedded chunks, 5 week windows)
+plus pre-generated weekly documents and a judged RAG-vs-baseline comparison,
+so the app demos **with zero API keys**. Add keys to unlock more:
 
 | You have | You can |
 |---|---|
@@ -53,13 +54,14 @@ Copy `.env.example` to `.env` in the repo root and fill in what you have.
 ```
 Lemmy c/games (top posts + comments)   FastAPI                    React SPA
         │  crawler (open API,           │                          │
-        │  parallel fetches;            │  /api/generate           │  Document tab
-        │  --source reddit kept)        │  /api/compare            │  Compare tab
-        ▼                               │                          │  Embeddings tab
-  markdown per post ── chunker ──► sqlite-vec vector table         │  Stats tab
-                          │        + BM25 (in-memory)              │
+        │  parallel fetches;            │  /api/generate(/stream)  │  Report tab
+        │  --source reddit kept)        │  /api/compare            │  Embeddings tab
+        ▼                               │                          │  A/B tab
+  markdown per post ── chunker ──► sqlite-vec vector table         │  Ingestion tab
+                          │        + BM25 (in-memory)              │  Help tab
                           ▼             │                          │
-                    Voyage embeddings   └── retrieval stats, PCA ──┘
+                    Voyage embeddings   └── retrieval stats,       │
+                                            UMAP/PCA + clusters ───┘
 ```
 
 - **Vector store**: a `vec0` virtual table (sqlite-vec) living in the same
@@ -75,7 +77,15 @@ Lemmy c/games (top posts + comments)   FastAPI                    React SPA
   dot sizes on the embedding map).
 - **Generation**: 4 models via one registry — Claude Opus 4.8, Claude Haiku
   4.5, DeepSeek V4, DeepSeek V4 Flash — each generation records latency, token
-  usage, and estimated cost.
+  usage, and estimated cost. The model emits a structured JSON report
+  (headline, topics with discussion share, standout threads, prediction
+  review, confidence-scored predictions); the exported markdown is built from
+  it server-side. `GET /api/generate/stream` is the SSE variant that drives
+  the UI's live five-stage pipeline animation.
+- **Embedding map**: the stored 2-D projection uses UMAP when `umap-learn` is
+  installed (the committed DB ships UMAP coords) and falls back to plain PCA
+  otherwise; k-means clusters with TF-IDF term labels color the map.
+  Recompute anytime without re-embedding: `.venv/bin/python -m app.rag.pca`.
 - **Judging**: every comparison is scored on specificity, evidence, temporal
   grounding, and usefulness — Claude Haiku structured outputs when an Anthropic
   key works, automatic fallback to DeepSeek V4 JSON mode otherwise.
@@ -83,14 +93,19 @@ Lemmy c/games (top posts + comments)   FastAPI                    React SPA
 ## The A/B tests (three kinds)
 
 1. **RAG vs no-RAG** — the same model writes the document with retrieved
-   context vs from parametric knowledge alone. This is the challenge's core
-   question: without RAG the model can only produce plausible generalities;
-   with RAG it cites real threads with real scores.
+   context vs from parametric knowledge alone. This is the core question RAG
+   is supposed to answer: without it the model can only produce plausible
+   generalities; with it, it cites real threads with real scores. This is the
+   comparison the A/B tab renders, with grounded claims highlighted and
+   hedged/unverifiable ones dashed.
 2. **Model vs model** — same week, same retrieved context, two different
    models; judge scores plus hard latency/token/cost numbers.
 3. **Retrieval vs retrieval** — hybrid vs vector-only vs BM25-only, with the
    Jaccard overlap of retrieved chunk sets. Quantifies what the embeddings buy
    over plain keyword search.
+
+Kinds 2 and 3 run via `POST /api/compare` (the UI surfaces kind 1); all
+stored comparisons remain queryable at `GET /api/comparisons/latest?kind=`.
 
 ## The crawler
 
@@ -105,14 +120,16 @@ in `.env` — nothing else needed):
 3. **Chunk → embed → index** — each post becomes a small markdown doc
    (title, metadata, selftext, top comments), split into ~400-token chunks
    with stable content-hash IDs, embedded in batches of 64, upserted into
-   sqlite-vec, then the 2-D PCA projection is recomputed.
+   sqlite-vec, then the 2-D projection (UMAP, PCA fallback) and topic
+   clusters are recomputed. The run's funnel numbers persist to the meta
+   table and feed the Ingestion tab.
 
 Handling "overly large amounts of data": ~200-post cap per month, comment
 fetches only where there's real discussion, 12 comments/post, per-field
 truncation — a month lands in the mid-hundreds of chunks (this repo's committed
-month: 455). Re-runs are idempotent: stable chunk IDs mean overlapping windows
-only embed what's new. The in-app **"Pull this week live"** button runs the
-same pipeline for the trailing 7 days (~15 s) and the new window appears in the
+month: 506). Re-runs are idempotent: stable chunk IDs mean overlapping windows
+only embed what's new. The Ingestion tab's **"Run now"** button runs the same
+pipeline for the trailing 7 days (~15 s) and the new window appears in the
 week selector. Measured on the real month ingest: 200 posts + 119 comment
 fetches in 6.2 s, chunk + embed + index in 12.4 s.
 
@@ -136,7 +153,7 @@ single transaction; KNN uses sqlite-vec's native `MATCH ... k = ?` path.
 ## Tests
 
 ```bash
-cd backend && .venv/bin/python -m pytest tests -q   # 69 tests, <1s, no API keys
+cd backend && .venv/bin/python -m pytest tests -q   # 78 tests, no API keys
 ```
 
 Three layers, all fully offline (embeddings faked, LLM calls stubbed), run in
@@ -149,29 +166,30 @@ CI on every push:
   mapping, idempotency), llm (cost math, judge fallback chain), generation
   (facet retrieval, prompts, prediction-review chaining, persistence).
 - **API** — every endpoint through FastAPI's TestClient: happy paths, 400/404
-  paths, download headers, stats accumulation, the SPA mount, plus the product
-  story end-to-end: weekly docs oldest-first (asserting the prediction-review
-  chain lands in each prompt) with every retrieval counted exactly once.
+  paths, download headers, stats accumulation, the SSE stream's event order,
+  the SPA mount, plus the product story end-to-end: weekly docs oldest-first
+  (asserting the prediction-review chain lands in each prompt) with every
+  retrieval counted exactly once.
 - **Regression** — pins bugs fixed during development (week-boundary
   alignment) plus a golden chunk-ID snapshot protecting the committed vector
   store.
 
-## Requirements coverage
+## Features
 
-| Challenge requirement | Where |
+| Feature | Where |
 |---|---|
-| 1. Community with an active online presence | c/games@lemmy.world (CLI-configurable; reddit source kept) |
-| 2. App generating a Community Voices Document (past week + predictions) | Document tab; markdown download |
-| 3. RAG-empowered generation | week-scoped facet retrieval → context-grounded prompt |
-| 3a. Vector DB / vectorized table in a relational DB | sqlite-vec `vec0` table inside SQLite |
-| 3b. Flattened embedding visualization | Embeddings tab — PCA scatter |
-| 3c. Stats on most-retrieved embeddings | retrieval counters, Stats leaderboard, dot sizing |
-| 4. Automated vector-store fill | `app/ingest.py` crawler + live-pull endpoint + weekly cron one-liner |
-| 4a. Crawlers / agentic ingestion | OAuth Reddit crawler, parallel fetches |
-| 4b. Overly-large-data handling | caps, thresholds, truncation (see The crawler) |
-| 5. A/B test with vs without RAG | Compare tab, judge scorecard, stored runs |
+| Active community source (c/games@lemmy.world, CLI-configurable; Reddit source kept) | `app/ingest.py` |
+| Weekly Community Voices Document (past week + predictions) | Report tab; `.md` download + print-to-PDF |
+| RAG-empowered generation | week-scoped facet retrieval → context-grounded prompt, live SSE pipeline |
+| Vectorized table in a relational DB | sqlite-vec `vec0` table inside SQLite |
+| Flattened embedding visualization | Embeddings tab — UMAP scatter, topic clusters, retrieval-heat mode |
+| Stats on most-retrieved embeddings | retrieval counters, most-retrieved table, cluster inspector, dot sizing |
+| Automated vector-store fill | Ingestion tab + `app/ingest.py` crawler + live-pull endpoint + weekly cron one-liner |
+| Crawler / agentic ingestion | open Lemmy API crawler, parallel fetches (OAuth Reddit kept) |
+| Overly-large-data handling | caps, thresholds, truncation (see The crawler; funnel on the Ingestion tab) |
+| A/B testing, with and without RAG | A/B tab: citation highlighting, judge scorecard, run metrics |
 
-Beyond the brief: a month of history with per-week documents, a
+Also included: a month of history with per-week documents, a
 prediction-vs-reality review section, 4-model comparison with cost/latency
 stats, retrieval-mode comparison with chunk overlap, hybrid RRF retrieval,
 LLM-judge scoring, zero-key read-only demo mode, and a live-scrape button.
