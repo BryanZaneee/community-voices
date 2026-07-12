@@ -7,3 +7,6 @@ voyageai>=0.3
 sqlite-vec>=0.1.6
 numpy>=1.26
 pytest>=8.0
+# optional: umap-learn — nicer 2-D embedding map at ingest/reproject time;
+# the app falls back to PCA without it (committed DB already carries coords)
+

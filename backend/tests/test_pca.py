@@ -32,3 +32,14 @@ def test_payload_shape_and_determinism(tmp_path):
     # points are not all collapsed to one spot
     xs = {p["x"] for p in a["points"]}
     assert len(xs) > 1
+
+
+def test_clusters_present_and_labeled(tmp_path):
+    idx = _index_with(tmp_path, 8)
+    payload = compute_pca(idx, model="fake", dim=DIM)
+    assert payload["method"] in ("pca", "umap")
+    k = len(payload["clusters"])
+    assert k >= 2
+    assert all(c["label"] for c in payload["clusters"])
+    assert sum(c["n"] for c in payload["clusters"]) == len(payload["points"])
+    assert all(0 <= pt["cluster"] < k for pt in payload["points"])

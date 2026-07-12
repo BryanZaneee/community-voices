@@ -328,6 +328,12 @@ def embeddings() -> dict:
         r["chunk_id"]: r["retrieved_count"]
         for r in conn.execute("SELECT chunk_id, retrieved_count FROM retrieval_stats")
     }
+    snippets = {
+        r["chunk_id"]: r["snippet"]
+        for r in conn.execute(
+            "SELECT chunk_id, substr(content, 1, 180) AS snippet FROM chunks"
+        )
+    }
     posts = {
         r["id"]: {"title": r["title"], "created_utc": r["created_utc"]}
         for r in conn.execute("SELECT id, title, created_utc FROM posts")
@@ -353,11 +359,17 @@ def embeddings() -> dict:
             {
                 **p,
                 "title": post.get("title"),
+                "snippet": snippets.get(p["id"]),
                 "week_start": week_of(post.get("created_utc")),
                 "retrieved_count": stats.get(p["id"], 0),
             }
         )
-    return {"embedding_model": pca.get("embedding_model"), "points": points}
+    return {
+        "embedding_model": pca.get("embedding_model"),
+        "method": pca.get("method", "pca"),
+        "clusters": pca.get("clusters", []),
+        "points": points,
+    }
 
 
 @app.get("/api/stats")

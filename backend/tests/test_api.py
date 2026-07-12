@@ -127,9 +127,16 @@ def test_embeddings_endpoint(client):
     d = client.get("/api/embeddings").json()
     assert len(d["points"]) > 0
     point = d["points"][0]
-    assert {"id", "x", "y", "title", "week_start", "retrieved_count"} <= set(point)
+    assert {
+        "id", "x", "y", "title", "snippet", "cluster",
+        "week_start", "retrieved_count",
+    } <= set(point)
     weeks = {w["week_start"] for w in client.get("/api/status").json()["weeks"]}
     assert all(p["week_start"] in weeks for p in d["points"])
+    assert d["method"] in ("pca", "umap")
+    k = len(d["clusters"])
+    assert k >= 2 and all(c["label"] for c in d["clusters"])
+    assert all(0 <= p["cluster"] < k for p in d["points"])
 
 
 def test_stats_endpoint_accumulates(client):
