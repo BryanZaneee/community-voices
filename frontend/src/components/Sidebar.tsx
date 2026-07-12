@@ -1,0 +1,331 @@
+import { useState } from 'react'
+import type { Status } from '../api'
+import { ACCENT, communityIdentity, fmt } from '../viewmodel'
+import { DISPLAY, MONO } from '../ui'
+import { useMeshShader } from '../useMeshShader'
+import type { RunState, StageUi } from '../runstate'
+
+export const NAVDEF = [
+  { key: 'report', label: 'Weekly report', shapeR: '2px', shapeTf: 'none', fill: true, split: false },
+  { key: 'embed', label: 'Embeddings', shapeR: '50%', shapeTf: 'none', fill: true, split: false },
+  { key: 'ab', label: 'A/B — RAG vs LLM', shapeR: '2px', shapeTf: 'none', fill: false, split: true },
+  { key: 'ingest', label: 'Ingestion', shapeR: '2px', shapeTf: 'rotate(45deg)', fill: true, split: false },
+  { key: 'help', label: 'Help', shapeR: '50%', shapeTf: 'none', fill: false, split: false },
+] as const
+
+export type TabKey = (typeof NAVDEF)[number]['key']
+
+const VEIL =
+  'linear-gradient(180deg,rgba(255,255,255,.55) 0%,rgba(255,255,255,.28) 55%,rgba(255,255,255,.16) 100%)'
+
+export function Sidebar({
+  status,
+  tab,
+  onTab,
+  open,
+  onToggle,
+  run,
+  stages,
+  model,
+  onModel,
+  onGenerate,
+  shadeKey,
+}: {
+  status: Status | null
+  tab: TabKey
+  onTab: (t: TabKey) => void
+  open: boolean
+  onToggle: () => void
+  run: RunState
+  stages: StageUi[]
+  model: string
+  onModel: (m: string) => void
+  onGenerate: () => void
+  shadeKey: string
+}) {
+  const [identOpen, setIdentOpen] = useState(true)
+  const setShaderEl = useMeshShader(shadeKey, true)
+  const ident = communityIdentity(status?.subreddit ?? null)
+  const running = run.phase === 'run'
+  const activity = status?.activity.slice(-7) ?? []
+  const maxDay = Math.max(1, ...activity.map((a) => a.n_posts))
+  const sorted = [...(status?.activity ?? [])]
+    .map((a) => a.n_posts)
+    .sort((a, b) => a - b)
+  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0
+  const models = status?.models_available ?? []
+  const canGenerate = models.length > 0 && !running
+  const curStage = stages[run.stage]
+
+  return (
+    <aside
+      style={{
+        width: open ? 274 : 0,
+        flex: 'none',
+        minHeight: 0,
+        overflow: 'hidden',
+        transition: 'width .65s cubic-bezier(.4,0,.2,1)',
+      }}
+    >
+      <div
+        style={{
+          width: 274,
+          height: '100%',
+          position: 'relative',
+          borderRight: '1px solid #E7E7DD',
+          background: '#FFFFFF',
+          overflow: 'hidden',
+        }}
+      >
+        <div ref={setShaderEl} style={{ position: 'absolute', inset: 0 }} />
+        <div style={{ position: 'absolute', inset: 0, background: VEIL }} />
+        <div
+          style={{
+            position: 'relative',
+            zIndex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            minHeight: 0,
+            overflowY: 'auto',
+          }}
+        >
+          {/* logo row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '20px 16px 16px 20px' }}>
+            <div
+              style={{
+                width: 28, height: 28, borderRadius: 9, background: '#16180F',
+                display: 'grid', placeItems: 'center', flex: 'none',
+              }}
+            >
+              <div style={{ width: 11, height: 11, borderRadius: '50%', background: '#A9BA4A' }} />
+            </div>
+            <div>
+              <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 15, letterSpacing: '-.01em', lineHeight: 1.1 }}>
+                Community Voices
+              </div>
+              <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.14em', color: '#8A8C7C', marginTop: 2 }}>
+                WEEKLY DIGEST · RAG
+              </div>
+            </div>
+            <button
+              onClick={onToggle}
+              title="Hide sidebar"
+              className="btn-white"
+              style={{
+                marginLeft: 'auto', width: 28, height: 28, borderRadius: 8,
+                border: '1px solid #E1E3D2', background: 'rgba(255,255,255,.7)',
+                cursor: 'pointer', display: 'grid', placeItems: 'center',
+                color: '#5F6153', fontSize: 13, lineHeight: 1, padding: 0, flex: 'none',
+              }}
+            >
+              «
+            </button>
+          </div>
+
+          {/* identity card */}
+          <div
+            style={{
+              margin: '0 16px 16px', padding: '12px 14px', border: '1px solid #E7E7DD',
+              borderRadius: 12, background: 'rgba(252,252,249,.72)', backdropFilter: 'blur(8px)',
+            }}
+          >
+            <div
+              onClick={() => setIdentOpen(!identOpen)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+            >
+              <div
+                style={{
+                  width: 34, height: 34, borderRadius: '50%', background: '#EEF1DA',
+                  border: '1px solid #DEE3B9', display: 'grid', placeItems: 'center',
+                  fontFamily: DISPLAY, fontWeight: 700, fontSize: 16, color: '#5A661A', flex: 'none',
+                }}
+              >
+                {ident.initial}
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 14, lineHeight: 1.15 }}>
+                  {ident.name}
+                </div>
+                <div style={{ fontFamily: MONO, fontSize: 10, color: '#8A8C7C' }}>
+                  {identOpen ? `${ident.instance} · fediverse` : 'source of this report'}
+                </div>
+              </div>
+              <span style={{ color: '#8A8C7C', fontSize: 10, flex: 'none' }}>
+                {identOpen ? '▾' : '▸'}
+              </span>
+            </div>
+            {identOpen && status && (
+              <>
+                <div style={{ fontSize: 11.5, lineHeight: 1.45, color: '#6B6D5F', margin: '9px 0 10px' }}>
+                  The fediverse&rsquo;s largest gaming community — its API is open
+                  by design, so this whole pipeline runs with zero credentials.
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 10px' }}>
+                  {[
+                    [fmt(status.week_totals?.n_posts), 'posts this week'],
+                    [fmt(status.week_totals?.n_comments), 'comments'],
+                    [fmt(status.chunks_total), 'chunks embedded'],
+                    [String(status.weeks.length), 'weeks tracked'],
+                  ].map(([v, label]) => (
+                    <div key={label}>
+                      <div style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 600 }}>{v}</div>
+                      <div style={{ fontSize: 9.5, color: '#8A8C7C' }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontFamily: MONO, fontSize: 8, letterSpacing: '.1em', color: '#A2A494', marginTop: 11 }}>
+                  POSTS / DAY · TRAILING WEEK
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 26, margin: '5px 0 7px' }}>
+                  {activity.map((a) => (
+                    <div
+                      key={a.date}
+                      title={`${a.date}: ${a.n_posts} posts`}
+                      style={{
+                        flex: 1,
+                        height: `${Math.max(4, (a.n_posts / maxDay) * 100)}%`,
+                        background: ACCENT,
+                        borderRadius: 1.5,
+                      }}
+                    />
+                  ))}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: ACCENT, flex: 'none' }} />
+                  <div style={{ fontSize: 10, color: '#5F6153', lineHeight: 1.35 }}>
+                    Active weekly discussion — median {median} posts/day
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* nav */}
+          <nav style={{ padding: '0 12px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {NAVDEF.map((n) => {
+              const act = tab === n.key
+              const shapeCol = act ? '#5A661A' : '#A2A494'
+              return (
+                <button
+                  key={n.key}
+                  onClick={() => onTab(n.key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 11, padding: '9px 11px',
+                    borderRadius: 9,
+                    border: `1px solid ${act ? '#DEE3B9' : 'transparent'}`,
+                    background: act ? '#F3F5E3' : 'transparent',
+                    color: act ? '#3A421A' : '#5F6153',
+                    fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    textAlign: 'left', width: '100%',
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 9, height: 9, flex: 'none',
+                      borderRadius: n.shapeR,
+                      background: n.split
+                        ? `linear-gradient(90deg, ${shapeCol} 50%, transparent 50%)`
+                        : n.fill
+                          ? shapeCol
+                          : 'transparent',
+                      border: `1.5px solid ${shapeCol}`,
+                      transform: n.shapeTf,
+                    }}
+                  />
+                  <span style={{ flex: 1 }}>{n.label}</span>
+                </button>
+              )
+            })}
+          </nav>
+
+          <div style={{ flex: 1 }} />
+
+          {/* pipeline status */}
+          {run.phase !== 'idle' && (
+            <div style={{ padding: '0 20px 14px' }}>
+              <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.14em', color: '#8A8C7C', marginBottom: 9 }}>
+                PIPELINE — THIS RUN
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {stages.map((st, i) => {
+                  const state = running
+                    ? i < run.stage ? 'done' : i === run.stage ? 'active' : 'todo'
+                    : run.phase === 'done' ? 'done' : 'todo'
+                  const color = state === 'todo' ? '#B9BBA9' : '#3A421A'
+                  return (
+                    <div key={st.key} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                      <span
+                        style={{
+                          width: 8, height: 8, borderRadius: '50%', flex: 'none',
+                          background: state === 'done' ? ACCENT : state === 'active' ? '#B9C65A' : '#E3E4D8',
+                          animation: state === 'active' ? 'ccPulse 1.1s ease-in-out infinite' : 'none',
+                        }}
+                      />
+                      <span style={{ fontSize: 12, fontWeight: 600, color, flex: 1 }}>{st.label}</span>
+                      <span style={{ fontFamily: MONO, fontSize: 10, color }}>
+                        {state === 'done' ? '✓' : state === 'active' ? '●' : '○'}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* model + generate */}
+          <div style={{ padding: '0 16px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <select
+              className="mono-select"
+              value={model}
+              disabled={models.length === 0 || running}
+              onChange={(e) => onModel(e.target.value)}
+              title={models.length === 0 ? 'Add an API key in .env to generate' : 'Model'}
+            >
+              {models.length === 0 ? (
+                <option>no model key configured</option>
+              ) : (
+                models.map((k) => (
+                  <option key={k} value={k}>
+                    {status?.models[k]?.label ?? k}
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              onClick={onGenerate}
+              disabled={!canGenerate}
+              className={canGenerate ? 'btn-brighten' : undefined}
+              title={models.length === 0 ? 'Add an API key in .env to generate' : undefined}
+              style={{
+                width: '100%', padding: '12px 14px', borderRadius: 10,
+                border: `1px solid ${running || !canGenerate ? '#E1E3D2' : '#5A661A'}`,
+                background: running || !canGenerate ? '#EDEFDF' : ACCENT,
+                color: running || !canGenerate ? '#6B6D5F' : '#FFFFFF',
+                fontFamily: DISPLAY, fontWeight: 600, fontSize: 13.5,
+                cursor: canGenerate ? 'pointer' : 'default',
+                letterSpacing: '.01em',
+              }}
+            >
+              {running
+                ? `Generating — ${curStage?.label ?? ''}…`
+                : run.phase === 'done'
+                  ? 'Regenerate report'
+                  : 'Generate weekly report'}
+            </button>
+          </div>
+          <div
+            style={{
+              padding: '11px 20px 16px', borderTop: '1px solid #EFEFE6',
+              fontFamily: MONO, fontSize: 9.5, color: '#8A8C7C', lineHeight: 1.6,
+            }}
+          >
+            sqlite-vec · {fmt(status?.chunks_total)} chunks
+            <br />
+            last ingest {status?.ingested_at?.replace('T', ' ').replace('+00:00', ' UTC') ?? '—'}
+          </div>
+        </div>
+      </div>
+    </aside>
+  )
+}
