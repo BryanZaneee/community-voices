@@ -1,4 +1,5 @@
 """API tests: every endpoint via FastAPI TestClient, fully offline."""
+import json
 
 
 def test_status_shape(client):
@@ -80,6 +81,40 @@ def test_compare_and_latest(client):
     latest = client.get("/api/comparisons/latest?kind=retrieval_vs_retrieval").json()
     assert latest["id"] == comp["id"]
     assert client.get("/api/comparisons/latest?kind=model_vs_model").status_code == 404
+
+
+def test_generate_stream_events(client):
+    week = _week(client)
+    with client.stream(
+        "GET",
+        f"/api/generate/stream?week_start={week}&model_key=deepseek-v4",
+    ) as resp:
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        body = "".join(resp.iter_text())
+    stages = [
+        json.loads(line[len("data: "):])["stage"]
+        for line in body.splitlines()
+        if line.startswith("data: ") and '"stage"' in line
+    ]
+    # cached ingest stages first, then live retrieve/write
+    assert stages[:3] == ["crawl", "reduce", "embed"]
+    assert "retrieve" in stages and "write" in stages
+    assert "event: done" in body
+    done = json.loads(body.split("event: done\ndata: ")[1].split("\n")[0])
+    assert done["week_start"] == week
+    assert done["content_md"].startswith("# Community Voices")
+    assert client.get(f"/api/documents/{done['id']}").status_code == 200
+
+
+def test_generate_stream_error_event(client):
+    week = _week(client)
+    with client.stream(
+        "GET",
+        f"/api/generate/stream?week_start={week}&model_key=not-a-model",
+    ) as resp:
+        body = "".join(resp.iter_text())
+    assert "event: error" in body and "unknown model" in body
 
 
 def test_ingest_week_requires_voyage_key(client):

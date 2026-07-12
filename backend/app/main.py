@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import sqlite3
+import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -111,6 +114,77 @@ def generate_endpoint(body: GenerateBody) -> dict:
             "SELECT * FROM documents WHERE id = ?", (doc_id,)
         ).fetchone()
     )
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+def _cached_stage_events(conn: sqlite3.Connection, week_start: str) -> list[str]:
+    """The crawl/reduce/embed stages ran at ingest time — report their real
+    cached facts instantly so the pipeline UI stays honest."""
+    week = next(
+        (w for w in db.week_windows(conn) if w["week_start"] == week_start), None
+    )
+    n_posts = week["n_posts"] if week else 0
+    n_chunks = week["n_chunks"] if week else 0
+    model = db.get_meta(conn, "embedding_model") or config.EMBEDDING_MODEL
+    ingested = db.get_meta(conn, "ingested_at") or "unknown"
+    return [
+        _sse("stage", {"stage": "crawl", "status": "cached",
+                       "detail": f"{n_posts} posts · ingested {ingested}"}),
+        _sse("stage", {"stage": "reduce", "status": "cached",
+                       "detail": f"{n_posts} posts → {n_chunks} chunks"}),
+        _sse("stage", {"stage": "embed", "status": "cached",
+                       "detail": f"{n_chunks} chunks · {model} · sqlite-vec"}),
+    ]
+
+
+@app.get("/api/generate/stream")
+def generate_stream(
+    week_start: str,
+    model_key: str,
+    mode: Literal["rag", "baseline"] = "rag",
+    retrieval_mode: RetrievalMode = "hybrid",
+) -> StreamingResponse:
+    """SSE variant of /api/generate: stage events, then `done` with the Doc."""
+    conn = state["conn"]
+    q: queue.Queue = queue.Queue()
+
+    def progress(stage: str, info: dict) -> None:
+        q.put(_sse("stage", {"stage": stage, **info}))
+
+    def run() -> None:
+        try:
+            doc_id = generate.generate_document(
+                conn,
+                state["retriever"],
+                week_start=week_start,
+                mode=mode,
+                model_key=model_key,
+                retrieval_mode=retrieval_mode,
+                progress=progress,
+            )
+            doc = _row_to_doc(
+                conn.execute(
+                    "SELECT * FROM documents WHERE id = ?", (doc_id,)
+                ).fetchone()
+            )
+            q.put(_sse("done", doc))
+        except Exception as exc:  # surfaced to the client as an SSE event
+            q.put(_sse("error", {"detail": str(exc)}))
+        finally:
+            q.put(None)
+
+    def events():
+        yield from _cached_stage_events(conn, week_start)
+        # ponytail: one worker thread per stream, UI serializes runs; a job
+        # queue is the upgrade path if generation ever goes multi-user.
+        threading.Thread(target=run, daemon=True).start()
+        while (item := q.get()) is not None:
+            yield item
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 class CompareBody(BaseModel):

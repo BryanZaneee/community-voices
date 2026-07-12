@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from typing import Callable
 
 from app import db, llm
 from app.rag.retriever import RetrievalMode, Retriever
@@ -246,8 +247,13 @@ def generate_document(
     mode: str,  # 'rag' | 'baseline'
     model_key: str,
     retrieval_mode: RetrievalMode = "hybrid",
+    progress: Callable[[str, dict], None] | None = None,
 ) -> int:
-    """Generate one document, store it, return documents.id."""
+    """Generate one document, store it, return documents.id.
+
+    `progress(stage, info)` is called around the retrieve and write stages
+    (used by the SSE endpoint); it must not raise."""
+    emit = progress or (lambda stage, info: None)
     community = db.get_meta(conn, "subreddit") or "games@lemmy.world"
     week_end = (
         datetime.fromisoformat(week_start) + timedelta(days=7)
@@ -267,17 +273,36 @@ def generate_document(
     chunks: list = []
     meta: dict = {}
     if mode == "rag":
+        emit("retrieve", {"status": "start", "week_start": week_start})
         chunks, meta = retrieve_context(conn, retriever, week_start, retrieval_mode)
         if not chunks:
             raise ValueError(
                 f"no chunks retrieved for week {week_start} "
                 f"(retrieval_mode={meta['mode']}) — is the week ingested?"
             )
+        emit(
+            "retrieve",
+            {
+                "status": "end",
+                "chunks": len(chunks),
+                "mode": meta["mode"],
+                "retrieval_ms": meta["retrieval_ms"],
+            },
+        )
         user = RAG_INSTRUCTIONS.format(context=_context_block(conn, chunks))
     else:
         user = BASELINE_INSTRUCTIONS
 
+    emit("write", {"status": "start", "model_key": model_key})
     result = llm.complete(model_key, system, user, json_schema=REPORT_SCHEMA)
+    emit(
+        "write",
+        {
+            "status": "end",
+            "latency_ms": result.latency_ms,
+            "output_tokens": result.output_tokens,
+        },
+    )
 
     report_json = None
     try:
