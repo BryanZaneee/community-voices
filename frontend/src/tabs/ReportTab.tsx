@@ -152,12 +152,21 @@ export function ReportTab({
               justifyContent: 'space-between', padding: '0 20px',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: ACCENT }} />
-              <span style={{ fontFamily: MONO, fontSize: 11, color: '#3A421A' }}>
-                Report generated · {fmtSecs(doc?.latency_ms)} ·{' '}
-                {chunksUsed > 0 ? `${chunksUsed} chunks retrieved` : 'no retrieval (baseline)'} ·{' '}
-                {doc?.model_key}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: error ? '#A6522E' : ACCENT, flex: 'none' }} />
+              <span
+                style={{
+                  fontFamily: MONO, fontSize: 11, color: error ? '#A6522E' : '#3A421A',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}
+              >
+                {error
+                  ? `regenerate failed: ${error} — showing the stored report`
+                  : `Report generated · ${fmtSecs(doc?.latency_ms)} · ${
+                      chunksUsed > 0
+                        ? `${chunksUsed} chunks retrieved`
+                        : 'no retrieval (baseline)'
+                    } · ${doc?.model_key}`}
               </span>
             </div>
             <button

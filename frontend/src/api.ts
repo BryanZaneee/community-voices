@@ -224,17 +224,28 @@ export function generateStream(
   })
   return new Promise((resolve, reject) => {
     const es = new EventSource(`/api/generate/stream?${qs}`)
-    es.addEventListener('stage', (e) =>
-      onStage(JSON.parse((e as MessageEvent).data)),
-    )
-    es.addEventListener('done', (e) => {
+    // Close before settling and never act twice: EventSource auto-reconnects
+    // on any connection close it didn't initiate, which would re-run the
+    // whole (paid) generation server-side.
+    let settled = false
+    const settle = (fn: () => void) => {
+      if (settled) return
+      settled = true
       es.close()
-      resolve(JSON.parse((e as MessageEvent).data))
+      fn()
+    }
+    es.addEventListener('stage', (e) => {
+      if (!settled) onStage(JSON.parse((e as MessageEvent).data))
+    })
+    es.addEventListener('done', (e) => {
+      const data = (e as MessageEvent).data
+      settle(() => resolve(JSON.parse(data)))
     })
     es.addEventListener('error', (e) => {
-      es.close()
       const data = (e as MessageEvent).data
-      reject(new Error(data ? JSON.parse(data).detail : 'stream failed'))
+      settle(() =>
+        reject(new Error(data ? JSON.parse(data).detail : 'stream failed')),
+      )
     })
   })
 }
