@@ -25,10 +25,11 @@ STOPWORDS = frozenset(
     "very too only own same other another new after before because while "
     "during between against through don didn doesn isn wasn aren won "
     "points comments comment top pts flair week post posts thread threads "
-    "game games gaming like get got one really".split()
+    "game games gaming like get got one really though still even much "
+    "https http www com net org html youtube reddit lemmy world".split()
 )
 
-_WORD = re.compile(r"[a-z][a-z0-9']{2,}")
+_WORD = re.compile(r"[a-z][a-z0-9]{2,}")
 
 
 def _tokens(text: str) -> list[str]:
