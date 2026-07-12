@@ -46,6 +46,41 @@ def test_generate_document_persists_row(seeded, stub_llm):
     assert "## Predictions for next week" in row["content_md"]
 
 
+def test_report_json_stored_and_markdown_built(seeded, stub_llm):
+    conn, _, retriever, weeks = seeded
+    doc_id = generate.generate_document(
+        conn, retriever, week_start=weeks[0], mode="rag", model_key="deepseek-v4"
+    )
+    row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+    report = json.loads(row["report_json"])
+    assert report["headline"] and len(report["topics"]) >= 3
+    md = row["content_md"]
+    assert md.startswith("# Community Voices")
+    assert "### Studio layoffs" in md
+    assert "_40% of discussion · 12 threads_" in md
+    assert "_30% of discussion_" in md  # null threads omitted from the meta line
+    assert "% confidence" in md
+
+
+def test_bad_json_falls_back_to_raw_text(seeded, monkeypatch):
+    from app import llm
+
+    def broken_complete(model_key, system, user, json_schema=None):
+        return llm.GenResult(
+            text="not json at all", model_key=model_key,
+            input_tokens=1, output_tokens=1, latency_ms=1,
+        )
+
+    monkeypatch.setattr(llm, "complete", broken_complete)
+    conn, _, retriever, weeks = seeded
+    doc_id = generate.generate_document(
+        conn, retriever, week_start=weeks[0], mode="rag", model_key="deepseek-v4"
+    )
+    row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+    assert row["content_md"] == "not json at all"
+    assert row["report_json"] is None
+
+
 def test_baseline_has_no_context_and_no_chunks(seeded, stub_llm):
     conn, _, retriever, weeks = seeded
     doc_id = generate.generate_document(

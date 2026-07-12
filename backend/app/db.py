@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS documents (
   week_start TEXT NOT NULL,
   subreddit TEXT NOT NULL,
   content_md TEXT NOT NULL,
+  report_json TEXT,
   queries TEXT,
   retrieved_chunk_ids TEXT,
   retrieval_mode TEXT CHECK (retrieval_mode IN ('hybrid','vector','bm25')),
@@ -82,6 +83,11 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     _load_sqlite_vec(conn)  # so joins against vec_chunks work on this conn too
     conn.executescript(SCHEMA)
+    # Migrate DBs created before report_json existed (CREATE IF NOT EXISTS
+    # above is a no-op for them).
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(documents)")}
+    if "report_json" not in cols:
+        conn.execute("ALTER TABLE documents ADD COLUMN report_json TEXT")
     conn.commit()
     return conn
 

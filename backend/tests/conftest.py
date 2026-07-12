@@ -109,21 +109,56 @@ Layoffs and roguelikes dominated, per *{title}*.
 """
 
 
+def stub_report(week: str, title: str) -> dict:
+    """A REPORT_SCHEMA-shaped payload the stubbed LLM returns."""
+    return {
+        "headline": "Layoffs and roguelikes dominated the week",
+        "lede": f"Layoffs and roguelikes dominated, per *{title}*.",
+        "topics": [
+            {"name": "Studio layoffs", "summary": f"Layoffs talk, per *{title}*.",
+             "share_pct": 40, "threads": 12},
+            {"name": "Roguelike recommendations", "summary": "Roguelikes trended.",
+             "share_pct": 30, "threads": None},
+            {"name": "Subscription pricing", "summary": "Price debate continued.",
+             "share_pct": 20, "threads": 6},
+        ],
+        "standouts": ["A big thread happened."],
+        "prediction_review": None,
+        "predictions": [
+            {"title": f"Prediction alpha for {week}: more layoffs talk",
+             "confidence": 72, "rationale": "Momentum from this week.",
+             "signals": ["thread volume rising"]},
+            {"title": "Prediction beta: roguelike sequels", "confidence": 55,
+             "rationale": "Recommendation threads keep growing.",
+             "signals": ["repeat threads"]},
+            {"title": "Prediction gamma: pricing poll", "confidence": 40,
+             "rationale": "Admins teased a poll.", "signals": ["mod comment"]},
+        ],
+    }
+
+
 @pytest.fixture
 def stub_llm(monkeypatch):
     """Stub llm.complete + llm.judge_json; records every call's prompts."""
+    import json as _json
+
     calls = {"complete": [], "judge": []}
 
-    def fake_complete(model_key, system, user):
+    def fake_complete(model_key, system, user, json_schema=None):
         from app import config
 
         if model_key not in config.MODELS:  # mirror _require_key's registry check
             raise llm.ModelUnavailable(f"unknown model: {model_key}")
         calls["complete"].append({"model_key": model_key, "system": system, "user": user})
-        week = system.split("Week of ")[-1].split(" ")[0] if "Week of" in system else "?"
+        week = system.split("week of ")[-1].split(" ")[0] if "week of" in system else "?"
         title = "Massive studio layoffs announced #0"
+        text = (
+            _json.dumps(stub_report(week, title))
+            if json_schema is not None
+            else STUB_DOC.format(week=week, title=title)
+        )
         return llm.GenResult(
-            text=STUB_DOC.format(week=week, title=title),
+            text=text,
             model_key=model_key,
             input_tokens=1000,
             output_tokens=500,

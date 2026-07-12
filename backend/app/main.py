@@ -53,7 +53,7 @@ app = FastAPI(title="Community Voices", lifespan=lifespan)
 
 def _row_to_doc(row: sqlite3.Row) -> dict:
     d = dict(row)
-    for key in ("queries", "retrieved_chunk_ids"):
+    for key in ("queries", "retrieved_chunk_ids", "report_json"):
         if d.get(key):
             d[key] = json.loads(d[key])
     cost = llm.est_cost_usd(d["model_key"], d["input_tokens"], d["output_tokens"])

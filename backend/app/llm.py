@@ -55,18 +55,29 @@ def _require_key(model_key: str) -> dict:
     return cfg
 
 
-def complete(model_key: str, system: str, user: str) -> GenResult:
+def complete(
+    model_key: str, system: str, user: str, json_schema: dict | None = None
+) -> GenResult:
+    """One completion. With json_schema, the response is constrained to that
+    schema (Anthropic structured outputs / DeepSeek JSON mode + schema in
+    system, same pattern as the judge)."""
     cfg = _require_key(model_key)
     t0 = time.perf_counter()
     if cfg["provider"] == "anthropic":
         import anthropic
 
+        kwargs = {}
+        if json_schema is not None:
+            kwargs["output_config"] = {
+                "format": {"type": "json_schema", "schema": json_schema}
+            }
         client = anthropic.Anthropic()
         resp = client.messages.create(
             model=cfg["model"],
             max_tokens=MAX_TOKENS,
             system=system,
             messages=[{"role": "user", "content": user}],
+            **kwargs,
         )
         if resp.stop_reason == "refusal":
             raise RuntimeError(f"{cfg['label']} refused the request")
@@ -75,6 +86,14 @@ def complete(model_key: str, system: str, user: str) -> GenResult:
     else:  # openai_compat (DeepSeek)
         from openai import OpenAI
 
+        kwargs = {}
+        if json_schema is not None:
+            kwargs["response_format"] = {"type": "json_object"}
+            system = (
+                system
+                + "\nRespond ONLY with JSON matching this schema:\n"
+                + json.dumps(json_schema)
+            )
         client = OpenAI(
             api_key=os.environ[cfg["key_env"]], base_url=cfg["base_url"]
         )
@@ -85,6 +104,7 @@ def complete(model_key: str, system: str, user: str) -> GenResult:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
+            **kwargs,
         )
         text = resp.choices[0].message.content or ""
         usage = resp.usage

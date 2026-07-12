@@ -25,21 +25,82 @@ CANONICAL_QUERIES = [
 K_PER_QUERY = 8
 MAX_CONTEXT_CHUNKS = 18
 
-DOC_SYSTEM = """You write a weekly "Community Voices" document for an online community.
-Structure it exactly as:
+REPORT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "headline": {"type": "string"},
+        "lede": {"type": "string"},
+        "topics": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 5,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "share_pct": {"type": ["integer", "null"]},
+                    "threads": {"type": ["integer", "null"]},
+                },
+                "required": ["name", "summary", "share_pct", "threads"],
+                "additionalProperties": False,
+            },
+        },
+        "standouts": {"type": "array", "items": {"type": "string"}},
+        "prediction_review": {
+            "type": ["array", "null"],
+            "items": {
+                "type": "object",
+                "properties": {
+                    "prediction": {"type": "string"},
+                    "grade": {"type": "string", "enum": ["hit", "partial", "miss"]},
+                    "evidence": {"type": "string"},
+                },
+                "required": ["prediction", "grade", "evidence"],
+                "additionalProperties": False,
+            },
+        },
+        "predictions": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 5,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "confidence": {"type": "integer"},
+                    "rationale": {"type": "string"},
+                    "signals": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["title", "confidence", "rationale", "signals"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": [
+        "headline", "lede", "topics", "standouts",
+        "prediction_review", "predictions",
+    ],
+    "additionalProperties": False,
+}
 
-# Community Voices — {community} — Week of {week_range}
+DOC_SYSTEM = """You write a weekly "Community Voices" report for the online
+community {community}, covering the week of {week_range}.
 
-## What the community talked about
-3-5 themes, each a short paragraph.
+Respond with a single JSON object with these fields:
+- headline: punchy 6-12 word title capturing the week
+- lede: 2-3 sentence overview paragraph
+- topics: 3-5 themes the community discussed. Each has: name, summary
+  (3-4 concrete sentences), share_pct (your estimate of the theme's integer
+  percentage share of the week's discussion; all topics together at most 100),
+  threads (estimated thread count, or null if you cannot estimate)
+- standouts: 3-5 one-sentence strings on individual notable posts
+- prediction_review: {prediction_review_section}
+- predictions: 3-5 forecasts for next week. Each has: title, confidence
+  (integer 0-100), rationale (one sentence of reasoning based on observed
+  momentum), signals (2-3 short strings naming the momentum you observed)
 
-## Standout threads
-3-5 bullet points on individual notable posts.
-{prediction_review_section}
-## Predictions for next week
-3-5 predictions with one sentence of reasoning each, based on observed momentum.
-
-Write in an engaging, concrete style. Markdown only, no preamble."""
+Write in an engaging, concrete style. Output JSON only."""
 
 RAG_INSTRUCTIONS = """Ground every claim in the context below — cite post titles
 in *italics* when referencing them. Do not invent posts or events. Base your
@@ -54,13 +115,52 @@ Using only your general knowledge of this community and gaming at large, write
 your best guess at what was discussed and what comes next. Do not invent
 specific post titles or exact numbers; be honest generalities are acceptable."""
 
-PREDICTION_REVIEW = """
-## Last week's predictions — how did they hold up?
+PREDICTION_REVIEW = """grade last week's predictions — how did they hold up?
 The previous week's document predicted:
 {previous_predictions}
-Grade each prediction against this week's actual discussions (hit / partial / miss)
-with one sentence of evidence each.
-"""
+One entry per prediction: prediction (short restatement), grade (hit, partial,
+or miss), evidence (one sentence grounded in this week's discussions)."""
+
+NO_REVIEW = "null (there is no prior week's document to review)"
+
+
+def build_markdown(community: str, week_range: str, report: dict) -> str:
+    """Render the structured report as the exported markdown document.
+
+    The first line and the section markers are load-bearing: tests pin the
+    "# Community Voices" prefix, and _previous_predictions() slices prior
+    docs at "## Predictions for next week".
+    """
+    lines = [f"# Community Voices — {community} — Week of {week_range}", ""]
+    lines += [f"**{report['headline']}**", "", report["lede"], ""]
+    lines.append("## What the community talked about")
+    for t in report["topics"]:
+        lines += ["", f"### {t['name']}"]
+        meta = " · ".join(
+            part
+            for part, present in (
+                (f"{t.get('share_pct')}% of discussion", t.get("share_pct") is not None),
+                (f"{t.get('threads')} threads", t.get("threads") is not None),
+            )
+            if present
+        )
+        if meta:
+            lines.append(f"_{meta}_")
+        lines += ["", t["summary"]]
+    lines += ["", "## Standout threads", ""]
+    lines += [f"- {s}" for s in report["standouts"]]
+    if report.get("prediction_review"):
+        lines += ["", "## Last week's predictions — how did they hold up?", ""]
+        lines += [
+            f"- **{r['prediction']}** — {r['grade']}: {r['evidence']}"
+            for r in report["prediction_review"]
+        ]
+    lines += ["", "## Predictions for next week"]
+    for p in report["predictions"]:
+        lines += ["", f"### {p['title']} — {p['confidence']}% confidence", ""]
+        lines.append(p["rationale"])
+        lines += [f"- {s}" for s in p["signals"]]
+    return "\n".join(lines) + "\n"
 
 
 def week_paths(conn: sqlite3.Connection, week_start: str) -> set[str]:
@@ -154,10 +254,13 @@ def generate_document(
     ).date().isoformat()
 
     prev = _previous_predictions(conn, community, week_start)
-    review = PREDICTION_REVIEW.format(previous_predictions=prev) if prev else ""
+    review = (
+        PREDICTION_REVIEW.format(previous_predictions=prev) if prev else NO_REVIEW
+    )
+    week_range = f"{week_start} to {week_end}"
     system = DOC_SYSTEM.format(
         community=community,
-        week_range=f"{week_start} to {week_end}",
+        week_range=week_range,
         prediction_review_section=review,
     )
 
@@ -174,20 +277,31 @@ def generate_document(
     else:
         user = BASELINE_INSTRUCTIONS
 
-    result = llm.complete(model_key, system, user)
+    result = llm.complete(model_key, system, user, json_schema=REPORT_SCHEMA)
+
+    report_json = None
+    try:
+        report = json.loads(result.text)
+        content_md = build_markdown(community, week_range, report)
+        report_json = result.text
+    except (json.JSONDecodeError, KeyError, TypeError):
+        # Model ignored the schema — keep its raw text; the UI falls back to
+        # rendering content_md directly.
+        content_md = result.text
 
     with conn:
         cur = conn.execute(
             "INSERT INTO documents (mode, model_key, week_start, subreddit, "
-            "  content_md, queries, retrieved_chunk_ids, retrieval_mode, "
-            "  latency_ms, input_tokens, output_tokens) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "  content_md, report_json, queries, retrieved_chunk_ids, "
+            "  retrieval_mode, latency_ms, input_tokens, output_tokens) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 mode,
                 model_key,
                 week_start,
                 community,
-                result.text,
+                content_md,
+                report_json,
                 json.dumps(CANONICAL_QUERIES) if mode == "rag" else None,
                 json.dumps([c.chunk_id for c in chunks]) if mode == "rag" else None,
                 meta.get("mode") if mode == "rag" else None,
