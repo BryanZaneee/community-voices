@@ -82,6 +82,7 @@ export function segmentDoc(md: string, side: 'rag' | 'base'): AbBlock[] {
       if (!block) continue
     }
     const text = block
+      .replace(/^_(.+)_$/s, '$1') // topic meta lines (_N% · N threads_)
       .replace(/^\s*[-*]\s+/gm, '')
       .replace(/\*\*([^*]+)\*\*/g, '$1')
       .replace(/\n+/g, ' ')

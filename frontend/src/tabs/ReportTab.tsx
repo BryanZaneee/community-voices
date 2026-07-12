@@ -3,7 +3,7 @@ import type { Doc, Status, Week } from '../api'
 import type { RunState, StageUi } from '../runstate'
 import { useMeshShader } from '../useMeshShader'
 import { ACCENT, citationCount, CLUSTER_COLORS, fmt, fmtSecs, weekRange } from '../viewmodel'
-import { card, DISPLAY, kicker, MONO, pill } from '../ui'
+import { card, DISPLAY, kicker, MONO, pill, RichText } from '../ui'
 
 const GRADE_STYLE: Record<string, { bg: string; fg: string }> = {
   hit: { bg: '#EEF1DA', fg: '#3A421A' },
@@ -202,7 +202,7 @@ export function ReportTab({
                   {report.headline}
                 </h1>
                 <p style={{ fontSize: 14.5, lineHeight: 1.65, color: '#3F4136', margin: '0 0 26px' }}>
-                  {report.lede}
+                  <RichText text={report.lede} />
                 </p>
               </div>
 
@@ -237,7 +237,7 @@ export function ReportTab({
                       )}
                     </div>
                     <div style={{ fontSize: 12.8, lineHeight: 1.62, color: '#3F4136' }}>
-                      {t.summary}
+                      <RichText text={t.summary} />
                     </div>
                   </div>
                 ))}
@@ -250,7 +250,7 @@ export function ReportTab({
                     {report.standouts.map((s) => (
                       <div key={s} style={{ display: 'flex', gap: 8, fontSize: 12.6, lineHeight: 1.55, color: '#3F4136' }}>
                         <span style={{ color: ACCENT, flex: 'none' }}>▸</span>
-                        <span>{s}</span>
+                        <span><RichText text={s} /></span>
                       </div>
                     ))}
                   </div>
@@ -271,7 +271,7 @@ export function ReportTab({
                             {r.grade}
                           </span>
                           <div style={{ fontSize: 12.6, lineHeight: 1.55, color: '#3F4136' }}>
-                            <span style={{ fontWeight: 600 }}>{r.prediction}</span> — {r.evidence}
+                            <span style={{ fontWeight: 600 }}>{r.prediction}</span> — <RichText text={r.evidence} />
                           </div>
                         </div>
                       )
@@ -329,7 +329,7 @@ export function ReportTab({
                         {p.title}
                       </div>
                       <div style={{ fontSize: 11.8, lineHeight: 1.55, color: '#4A4C3E' }}>
-                        {p.rationale}
+                        <RichText text={p.rationale} />
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2 }}>
                         {p.signals.map((sg) => (

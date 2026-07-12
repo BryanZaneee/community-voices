@@ -29,6 +29,32 @@ export const pill = (bg: string, fg: string): CSSProperties => ({
   color: fg,
 })
 
+/** Inline markdown italics (*cited post title*) -> highlighted spans. */
+export function RichText({ text }: { text: string }) {
+  const parts = text.split(/\*([^*\n]+)\*/g)
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <span
+            key={i}
+            style={{
+              background: '#EEF1DA',
+              borderBottom: '2px solid #7A8B22',
+              padding: '0 2px',
+              borderRadius: 2,
+            }}
+          >
+            {part}
+          </span>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
+  )
+}
+
 export const whiteBtn: CSSProperties = {
   padding: '8px 14px',
   borderRadius: 9,
