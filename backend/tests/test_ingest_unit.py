@@ -117,7 +117,7 @@ def test_run_ingest_persists_report_meta(tmp_path, monkeypatch):
         ingest, "fetch_comments_lemmy", lambda s, p: comments[p["name"]]
     )
     report = ingest.run_ingest(
-        conn, vec, FakeEmbeddingProvider(dim=DIM), "test", source="lemmy"
+        conn, vec, FakeEmbeddingProvider(dim=DIM), "test"
     )
     stored = json.loads(db.get_meta(conn, "ingest_report"))
     assert stored == report

@@ -1,13 +1,19 @@
 import type { Comparison } from '../api'
 import {
-  citationCount,
+  claimStats,
   CRITERIA_LABELS,
   metricRows,
+  prosCons,
   segmentDoc,
   weekRange,
   type AbBlock,
+  type ClaimStats,
 } from '../viewmodel'
 import { card, DISPLAY, kicker, MONO, whiteBtn } from '../ui'
+
+const OLIVE = '#7A8B22'
+const GRAY = '#C9CABB'
+const HEDGE = '#B9B4A5'
 
 function Paragraphs({ blocks, side }: { blocks: AbBlock[]; side: 'rag' | 'base' }) {
   return (
@@ -37,9 +43,9 @@ function Paragraphs({ blocks, side }: { blocks: AbBlock[]; side: 'rag' | 'base' 
                   style={{
                     background: s.cite ? '#EEF1DA' : 'transparent',
                     borderBottom: s.cite
-                      ? '2px solid #7A8B22'
+                      ? `2px solid ${OLIVE}`
                       : s.vague
-                        ? '2px dashed #B9B4A5'
+                        ? `2px dashed ${HEDGE}`
                         : '2px solid transparent',
                     padding: '1px 2px',
                     borderRadius: 2,
@@ -58,6 +64,32 @@ function Paragraphs({ blocks, side }: { blocks: AbBlock[]; side: 'rag' | 'base' 
         ),
       )}
     </>
+  )
+}
+
+/** One stacked bar: grounded / neutral / hedged shares of the document. */
+function CompositionBar({ label, stats }: { label: string; stats: ClaimStats }) {
+  const total = Math.max(1, stats.totalChars)
+  const pct = (n: number) => (n / total) * 100
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 600 }}>{label}</span>
+        <span style={{ fontFamily: MONO, fontSize: 10, color: '#6B6D5F' }}>
+          {stats.grounded} grounded · {stats.hedged} hedged
+        </span>
+      </div>
+      <div style={{ display: 'flex', height: 14, borderRadius: 4, overflow: 'hidden', background: '#F0F0E7' }}>
+        <div style={{ width: `${pct(stats.groundedChars)}%`, background: OLIVE }} />
+        <div style={{ width: `${pct(stats.neutralChars)}%`, background: '#E3E4D8' }} />
+        <div style={{ width: `${pct(stats.hedgedChars)}%`, background: HEDGE }} />
+      </div>
+      <div style={{ display: 'flex', gap: 14, marginTop: 5, fontFamily: MONO, fontSize: 9, color: '#8A8C7C' }}>
+        <span>{Math.round(pct(stats.groundedChars))}% grounded</span>
+        <span>{Math.round(pct(stats.neutralChars))}% neutral prose</span>
+        <span>{Math.round(pct(stats.hedgedChars))}% hedged</span>
+      </div>
+    </div>
   )
 }
 
@@ -99,9 +131,12 @@ export function AbTab({
   const base = comp.doc_a
   const ragBlocks = segmentDoc(rag.content_md, 'rag')
   const baseBlocks = segmentDoc(base.content_md, 'base')
-  const ragCites = citationCount(rag.content_md)
+  const ragStats = claimStats(ragBlocks)
+  const baseStats = claimStats(baseBlocks)
   const judge = comp.judge
-  const rows = metricRows(comp)
+  const rows = metricRows(comp, ragStats, baseStats)
+  const maxRow = (r: (typeof rows)[number]) => Math.max(r.ragN, r.baseN, 1)
+  const { pros, cons } = prosCons(comp, ragStats, baseStats)
   const range = weekRange(
     rag.week_start,
     new Date(new Date(rag.week_start + 'T00:00:00Z').getTime() + 7 * 86400e3)
@@ -120,7 +155,7 @@ export function AbTab({
           <span
             style={{
               width: 12, height: 12, borderRadius: 3, background: '#EEF1DA',
-              borderBottom: '2px solid #7A8B22',
+              borderBottom: `2px solid ${OLIVE}`,
             }}
           />
           grounded claim (cites a post title)
@@ -129,7 +164,7 @@ export function AbTab({
           <span
             style={{
               width: 12, height: 12, borderRadius: 3, background: '#FFFFFF',
-              borderBottom: '2px dashed #B9B4A5',
+              borderBottom: `2px dashed ${HEDGE}`,
             }}
           />
           hedged / unverifiable claim
@@ -154,7 +189,7 @@ export function AbTab({
       >
         <div
           style={{
-            border: '1px solid #DEE3B9', borderTop: '3px solid #7A8B22',
+            border: '1px solid #DEE3B9', borderTop: `3px solid ${OLIVE}`,
             borderRadius: 14, background: '#FFFFFF', padding: '20px 22px',
           }}
         >
@@ -167,7 +202,7 @@ export function AbTab({
                 borderRadius: 99, padding: '3px 9px',
               }}
             >
-              {ragCites} citations
+              {ragStats.grounded} citations
             </span>
           </div>
           <div style={{ fontFamily: MONO, fontSize: 10, color: '#8A8C7C', marginBottom: 14 }}>
@@ -178,7 +213,7 @@ export function AbTab({
         </div>
         <div
           style={{
-            border: '1px solid #E7E7DD', borderTop: '3px solid #C9CABB',
+            border: '1px solid #E7E7DD', borderTop: `3px solid ${GRAY}`,
             borderRadius: 14, background: '#FFFFFF', padding: '20px 22px',
           }}
         >
@@ -203,9 +238,23 @@ export function AbTab({
         </div>
       </div>
 
+      {/* claim composition */}
+      <div style={{ ...card(), marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+          <div style={kicker}>CLAIM COMPOSITION — SHARE OF EACH DOCUMENT</div>
+          <div style={{ fontSize: 10, color: '#A2A494' }}>
+            grounded = cites a retrieved thread · hedged = &ldquo;likely / probably&rdquo; or an unverifiable title
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          <CompositionBar label="With RAG" stats={ragStats} />
+          <CompositionBar label="LLM only" stats={baseStats} />
+        </div>
+      </div>
+
       <div
         style={{
-          display: 'grid', gridTemplateColumns: '1.15fr 1fr', gap: 14,
+          display: 'grid', gridTemplateColumns: '1fr 1.15fr', gap: 14,
           alignItems: 'start', marginBottom: 14,
         }}
       >
@@ -226,14 +275,14 @@ export function AbTab({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
                       <span style={{ fontFamily: MONO, fontSize: 9, width: 28, color: '#5A661A' }}>RAG</span>
                       <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#F0F0E7' }}>
-                        <div style={{ height: '100%', width: `${(ragScore / 5) * 100}%`, background: '#7A8B22', borderRadius: 3 }} />
+                        <div style={{ height: '100%', width: `${(ragScore / 5) * 100}%`, background: OLIVE, borderRadius: 3 }} />
                       </div>
                       <span style={{ fontFamily: MONO, fontSize: 10, width: 14, textAlign: 'right' }}>{ragScore}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontFamily: MONO, fontSize: 9, width: 28, color: '#8A8C7C' }}>LLM</span>
                       <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#F0F0E7' }}>
-                        <div style={{ height: '100%', width: `${(baseScore / 5) * 100}%`, background: '#C9CABB', borderRadius: 3 }} />
+                        <div style={{ height: '100%', width: `${(baseScore / 5) * 100}%`, background: GRAY, borderRadius: 3 }} />
                       </div>
                       <span style={{ fontFamily: MONO, fontSize: 10, width: 14, textAlign: 'right' }}>{baseScore}</span>
                     </div>
@@ -248,62 +297,87 @@ export function AbTab({
           )}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {/* run metrics */}
-          <div style={card()}>
-            <div style={{ ...kicker, marginBottom: 12 }}>RUN METRICS</div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <div
-                style={{
-                  display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 54px', gap: 8,
-                  padding: '0 0 7px', fontFamily: MONO, fontSize: 9,
-                  letterSpacing: '.08em', color: '#A2A494',
-                }}
-              >
-                <span />
-                <span>RAG</span>
-                <span>LLM ONLY</span>
-                <span />
-              </div>
-              {rows.map((m) => (
-                <div
-                  key={m.name}
-                  style={{
-                    display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 54px', gap: 8,
-                    alignItems: 'center', padding: '7px 0', borderTop: '1px solid #F0F0E7',
-                  }}
-                >
-                  <span style={{ fontSize: 11.5, color: '#4A4C3E' }}>{m.name}</span>
-                  <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600 }}>{m.rag}</span>
-                  <span style={{ fontFamily: MONO, fontSize: 11, color: '#6B6D5F' }}>{m.base}</span>
+        {/* run metrics — paired bars */}
+        <div style={card()}>
+          <div style={{ ...kicker, marginBottom: 14 }}>RUN METRICS</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {rows.map((m) => (
+              <div key={m.name}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4, gap: 10 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>{m.name}</span>
                   <span
                     style={{
-                      fontFamily: MONO, fontSize: 8.5, fontWeight: 600, textAlign: 'center',
-                      borderRadius: 99, padding: '2.5px 0',
-                      background: m.win === 'rag' ? '#EEF1DA' : m.win === 'base' ? '#F0F0E7' : 'transparent',
-                      color: m.win === 'rag' ? '#3A421A' : m.win === 'base' ? '#6B6D5F' : '#B9BBA9',
+                      fontFamily: MONO, fontSize: 9, fontWeight: 600,
+                      color: m.win === 'rag' ? '#3A421A' : m.win === 'base' ? '#8A6A20' : '#A2A494',
                     }}
                   >
-                    {m.win === 'rag' ? 'RAG' : m.win === 'base' ? 'LLM' : '—'}
+                    {m.delta}
                   </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                  <span style={{ fontFamily: MONO, fontSize: 9, width: 28, color: '#5A661A' }}>RAG</span>
+                  <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#F0F0E7' }}>
+                    <div style={{ height: '100%', width: `${(m.ragN / maxRow(m)) * 100}%`, background: OLIVE, borderRadius: 3 }} />
+                  </div>
+                  <span style={{ fontFamily: MONO, fontSize: 10, width: 52, textAlign: 'right' }}>{m.rag}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontFamily: MONO, fontSize: 9, width: 28, color: '#8A8C7C' }}>LLM</span>
+                  <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#F0F0E7' }}>
+                    <div style={{ height: '100%', width: `${(m.baseN / maxRow(m)) * 100}%`, background: GRAY, borderRadius: 3 }} />
+                  </div>
+                  <span style={{ fontFamily: MONO, fontSize: 10, width: 52, textAlign: 'right', color: '#6B6D5F' }}>{m.base}</span>
+                </div>
+                <div style={{ fontSize: 9.5, color: '#A2A494', marginTop: 3 }}>{m.note}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* verdict: pros / cons + judge rationale */}
+      <div
+        style={{
+          border: '1px solid #DEE3B9', borderRadius: 14,
+          background: '#F6F8EA', padding: '18px 20px',
+        }}
+      >
+        <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.14em', color: '#5A661A', marginBottom: 12 }}>
+          VERDICT — {judge?.winner === 'b' ? 'RAG' : judge?.winner === 'a' ? 'LLM ONLY' : 'TIE'}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, marginBottom: 14 }}>
+          <div>
+            <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.1em', color: '#3A421A', marginBottom: 7 }}>
+              WHAT RAG BUYS
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {pros.map((p) => (
+                <div key={p} style={{ display: 'flex', gap: 7, fontSize: 11.8, lineHeight: 1.5, color: '#33352B' }}>
+                  <span style={{ color: OLIVE, flex: 'none' }}>▸</span>
+                  <span>{p}</span>
                 </div>
               ))}
             </div>
           </div>
-          {/* verdict */}
-          <div
-            style={{
-              border: '1px solid #DEE3B9', borderRadius: 14,
-              background: '#F6F8EA', padding: '16px 18px',
-            }}
-          >
-            <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.14em', color: '#5A661A', marginBottom: 8 }}>
-              VERDICT — {judge?.winner === 'b' ? 'RAG' : judge?.winner === 'a' ? 'LLM ONLY' : 'TIE'}
+          <div>
+            <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.1em', color: '#8A6A20', marginBottom: 7 }}>
+              WHAT IT COSTS
             </div>
-            <div style={{ fontSize: 12.6, lineHeight: 1.62, color: '#33352B' }}>
-              {judge?.rationale ?? 'No judge rationale stored for this comparison.'}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {cons.map((c) => (
+                <div key={c} style={{ display: 'flex', gap: 7, fontSize: 11.8, lineHeight: 1.5, color: '#4A4C3E' }}>
+                  <span style={{ color: '#B08C1E', flex: 'none' }}>▸</span>
+                  <span>{c}</span>
+                </div>
+              ))}
             </div>
           </div>
+        </div>
+        <div style={{ fontSize: 12.6, lineHeight: 1.62, color: '#33352B', borderTop: '1px solid #DEE3B9', paddingTop: 12 }}>
+          <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '.1em', color: '#8A8C7C', marginRight: 8 }}>
+            JUDGE
+          </span>
+          {judge?.rationale ?? 'No judge rationale stored for this comparison.'}
         </div>
       </div>
     </div>

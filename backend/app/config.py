@@ -10,7 +10,7 @@ FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
 EMBEDDING_MODEL = "voyage-3-large"
 EMBEDDING_DIM = 1024
-DEFAULT_COMMUNITY = "games"  # lemmy community name (or subreddit with --source reddit)
+DEFAULT_COMMUNITY = "games"  # lemmy community name
 USER_AGENT = "community-voices/0.1 (take-home demo; contact: repo issues)"
 
 
@@ -28,9 +28,8 @@ def _load_dotenv(path: Path = REPO_ROOT / ".env") -> None:
 
 _load_dotenv()
 
-# Generation model registry, default model (first key whose API key is
-# configured) first. Prices are USD per million tokens (input, output) for
-# the cost estimate shown in comparisons; update if vendors change them.
+# Generation model. Prices are USD per million tokens (input, output) for
+# the cost estimates shown in comparisons; update if the vendor changes them.
 MODELS: dict[str, dict] = {
     "deepseek-v4": {
         "provider": "openai_compat",
@@ -42,37 +41,9 @@ MODELS: dict[str, dict] = {
         "price_in": 0.28,
         "price_out": 0.42,
     },
-    "deepseek-v4-flash": {
-        "provider": "openai_compat",
-        "model": "deepseek-v4-flash",
-        "base_url": "https://api.deepseek.com",
-        "key_env": "DEEPSEEK_API_KEY",
-        "label": "DeepSeek V4 Flash",
-        "vendor": "DeepSeek",
-        "price_in": 0.14,
-        "price_out": 0.28,
-    },
-    "claude-opus-4-8": {
-        "provider": "anthropic",
-        "model": "claude-opus-4-8",
-        "key_env": "ANTHROPIC_API_KEY",
-        "label": "Claude Opus 4.8",
-        "vendor": "Anthropic",
-        "price_in": 5.00,
-        "price_out": 25.00,
-    },
-    "claude-haiku-4-5": {
-        "provider": "anthropic",
-        "model": "claude-haiku-4-5",
-        "key_env": "ANTHROPIC_API_KEY",
-        "label": "Claude Haiku 4.5",
-        "vendor": "Anthropic",
-        "price_in": 1.00,
-        "price_out": 5.00,
-    },
 }
 
-JUDGE_MODEL_KEY = "claude-haiku-4-5"
+DEFAULT_MODEL_KEY = "deepseek-v4"
 
 
 def available_models() -> list[str]:

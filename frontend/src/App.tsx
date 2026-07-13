@@ -21,7 +21,6 @@ const TITLES: Record<TabKey, string> = {
 export default function App() {
   const [status, setStatus] = useState<Status | null>(null)
   const [week, setWeek] = useState('')
-  const [model, setModel] = useState('')
   const [doc, setDoc] = useState<Doc | null>(null)
   const [comp, setComp] = useState<Comparison | null>(null)
   const [emb, setEmb] = useState<Embeddings | null>(null)
@@ -49,7 +48,6 @@ export default function App() {
     api.status().then((s) => {
       setStatus(s)
       setWeek(s.weeks[0]?.week_start ?? '')
-      setModel(s.models_available[0] ?? '')
     }).catch(() => {})
     api.latestComparison('rag_vs_baseline').then(setComp).catch(() => {})
     refreshRetrievalViews()
@@ -73,8 +71,8 @@ export default function App() {
   }, [week])
 
   const running = gen.run.phase === 'run'
-  const models = status?.models_available ?? []
-  const canGenerate = models.length > 0 && !!model && !running
+  const model = status?.models_available[0] ?? ''
+  const canGenerate = !!model && !running
 
   const onGenerate = () => {
     if (!canGenerate || !week) return
@@ -88,7 +86,7 @@ export default function App() {
     setAbError(null)
     try {
       setComp(
-        await api.compare({ week_start: week, kind: 'rag_vs_baseline', model_a: model }),
+        await api.compare({ week_start: week, model_key: model }),
       )
       refreshRetrievalViews()
     } catch (e) {
@@ -133,8 +131,6 @@ export default function App() {
         onToggle={() => setSideOpen(!sideOpen)}
         run={gen.run}
         stages={gen.stages}
-        model={model}
-        onModel={setModel}
         onGenerate={onGenerate}
         shadeKey={gen.shadeKey}
       />
@@ -240,7 +236,7 @@ export default function App() {
             {tab === 'ab' && (
               <AbTab
                 comp={comp}
-                canRun={models.length > 0 && !!model}
+                canRun={!!model}
                 busy={abBusy}
                 onRun={onRunAb}
                 error={abError}

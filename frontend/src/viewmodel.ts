@@ -125,58 +125,159 @@ export const citationCount = (md: string): number =>
   [...md.matchAll(/\*([^*\n]+)\*/g)].filter((m) => !m[0].startsWith('**'))
     .length
 
-export interface MetricRow {
-  name: string
-  rag: string
-  base: string
-  win: 'rag' | 'base' | 'even'
+/** Character-weighted claim composition of a segmented doc. */
+export interface ClaimStats {
+  grounded: number // count of cited spans
+  hedged: number // count of hedged/unverifiable spans
+  groundedChars: number
+  hedgedChars: number
+  neutralChars: number
+  totalChars: number
 }
 
-export function metricRows(comp: Comparison): MetricRow[] {
+export function claimStats(blocks: AbBlock[]): ClaimStats {
+  const s: ClaimStats = {
+    grounded: 0, hedged: 0,
+    groundedChars: 0, hedgedChars: 0, neutralChars: 0, totalChars: 0,
+  }
+  for (const b of blocks) {
+    for (const seg of b.segs) {
+      const n = seg.text.length
+      s.totalChars += n
+      if (seg.cite != null) {
+        s.grounded += 1
+        s.groundedChars += n
+      } else if (seg.vague) {
+        s.hedged += 1
+        s.hedgedChars += n
+      } else {
+        s.neutralChars += n
+      }
+    }
+  }
+  return s
+}
+
+export interface MetricRow {
+  name: string
+  note: string
+  rag: string
+  base: string
+  ragN: number
+  baseN: number
+  win: 'rag' | 'base' | 'even'
+  delta: string
+}
+
+const ratio = (hi: number, lo: number): string =>
+  lo > 0 ? `${(hi / lo).toFixed(1)}×` : '—'
+
+export function metricRows(
+  comp: Comparison,
+  ragStats: ClaimStats,
+  baseStats: ClaimStats,
+): MetricRow[] {
   const rag = comp.doc_b // rag_vs_baseline: A = baseline, B = RAG
   const base = comp.doc_a
-  const rows: MetricRow[] = []
   const lower = (a: number, b: number): 'rag' | 'base' | 'even' =>
     a === b ? 'even' : a < b ? 'rag' : 'base'
-  rows.push({
-    name: 'Cost / report',
-    rag: fmtUsd(rag.cost_usd),
-    base: fmtUsd(base.cost_usd),
-    win: lower(rag.cost_usd ?? 0, base.cost_usd ?? 0),
-  })
-  rows.push({
-    name: 'Generation time',
-    rag: fmtSecs(rag.latency_ms),
-    base: fmtSecs(base.latency_ms),
-    win: lower(rag.latency_ms, base.latency_ms),
-  })
-  rows.push({
-    name: 'Input tokens',
-    rag: fmt(rag.input_tokens),
-    base: fmt(base.input_tokens),
-    win: lower(rag.input_tokens, base.input_tokens),
-  })
-  rows.push({
-    name: 'Output tokens',
-    rag: fmt(rag.output_tokens),
-    base: fmt(base.output_tokens),
-    win: 'even',
-  })
-  // baseline has no retrieval, so nothing it writes is a verifiable citation
-  const ragCites = citationCount(rag.content_md)
-  rows.push({
-    name: 'Verifiable citations',
-    rag: String(ragCites),
-    base: '0',
-    win: ragCites > 0 ? 'rag' : 'even',
-  })
-  rows.push({
-    name: 'Chunks retrieved',
-    rag: String(rag.retrieved_chunk_ids?.length ?? 0),
-    base: '0',
-    win: 'rag',
-  })
-  return rows
+  const ragCost = rag.cost_usd ?? 0
+  const baseCost = base.cost_usd ?? 0
+  const rows: MetricRow[] = [
+    {
+      name: 'Cost / report',
+      note: 'retrieved context is paid input',
+      rag: fmtUsd(rag.cost_usd),
+      base: fmtUsd(base.cost_usd),
+      ragN: ragCost,
+      baseN: baseCost,
+      win: lower(ragCost, baseCost),
+      delta: `${ratio(Math.max(ragCost, baseCost), Math.min(ragCost, baseCost))} ${ragCost > baseCost ? 'more' : 'less'}`,
+    },
+    {
+      name: 'Generation time',
+      note: 'retrieval + a longer prompt',
+      rag: fmtSecs(rag.latency_ms),
+      base: fmtSecs(base.latency_ms),
+      ragN: rag.latency_ms,
+      baseN: base.latency_ms,
+      win: lower(rag.latency_ms, base.latency_ms),
+      delta: `${((rag.latency_ms - base.latency_ms) / 1000).toFixed(1)}s slower`,
+    },
+    {
+      name: 'Input tokens',
+      note: 'the chunks the model reads',
+      rag: fmt(rag.input_tokens),
+      base: fmt(base.input_tokens),
+      ragN: rag.input_tokens,
+      baseN: base.input_tokens,
+      win: lower(rag.input_tokens, base.input_tokens),
+      delta: `${ratio(rag.input_tokens, base.input_tokens)} the context`,
+    },
+    {
+      name: 'Output tokens',
+      note: 'both write a full report',
+      rag: fmt(rag.output_tokens),
+      base: fmt(base.output_tokens),
+      ragN: rag.output_tokens,
+      baseN: base.output_tokens,
+      win: 'even',
+      delta: '≈ even',
+    },
+    {
+      // baseline has no retrieval, so nothing it writes is verifiable
+      name: 'Verifiable citations',
+      note: 'claims that trace to a real thread',
+      rag: String(ragStats.grounded),
+      base: '0',
+      ragN: ragStats.grounded,
+      baseN: 0,
+      win: ragStats.grounded > 0 ? 'rag' : 'even',
+      delta: `${ragStats.grounded} vs 0`,
+    },
+    {
+      name: 'Hedged claims',
+      note: '"likely", "probably", invented titles',
+      rag: String(ragStats.hedged),
+      base: String(baseStats.hedged),
+      ragN: ragStats.hedged,
+      baseN: baseStats.hedged,
+      win: lower(ragStats.hedged, baseStats.hedged),
+      delta: `${ragStats.hedged} vs ${baseStats.hedged}`,
+    },
+  ]
+  return rows.filter((r) => r.ragN > 0 || r.baseN > 0) // drop empty rows
+}
+
+/** Pros/cons bullets for the verdict panel, from real run numbers. */
+export function prosCons(
+  comp: Comparison,
+  ragStats: ClaimStats,
+  baseStats: ClaimStats,
+): { pros: string[]; cons: string[] } {
+  const rag = comp.doc_b
+  const base = comp.doc_a
+  const judge = comp.judge?.scores
+  const pros = [
+    `${ragStats.grounded} claims trace to real retrieved threads — the baseline has 0 verifiable claims`,
+    `covers this exact week: grounded on ${rag.retrieved_chunk_ids?.length ?? 0} chunks scoped to the covered window`,
+  ]
+  if (baseStats.hedged > ragStats.hedged) {
+    pros.push(
+      `${ragStats.hedged} hedged statements vs ${baseStats.hedged} in the baseline`,
+    )
+  }
+  if (judge) {
+    const ragTotal = Object.values(judge.b).reduce((a, v) => a + v, 0)
+    const baseTotal = Object.values(judge.a).reduce((a, v) => a + v, 0)
+    pros.push(`blind judge scores it ${ragTotal}/20 vs ${baseTotal}/20`)
+  }
+  const cons = [
+    `${ratio(rag.cost_usd ?? 0, base.cost_usd ?? 0)} the cost per report (${fmtUsd(rag.cost_usd)} vs ${fmtUsd(base.cost_usd)})`,
+    `${((rag.latency_ms - base.latency_ms) / 1000).toFixed(1)}s slower end-to-end (retrieval + a ${ratio(rag.input_tokens, base.input_tokens)} larger prompt)`,
+    'needs the crawl to have run — no ingest, no grounding',
+  ]
+  return { pros, cons }
 }
 
 export const CRITERIA_LABELS: Record<string, { label: string; note: string }> = {

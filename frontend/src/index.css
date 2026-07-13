@@ -69,21 +69,6 @@ button {
   color: #3A4214 !important;
 }
 
-select.mono-select {
-  width: 100%;
-  padding: 7px 9px;
-  border-radius: 9px;
-  border: 1px solid #E1E3D2;
-  background: #FFFFFF;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: #3A421A;
-  cursor: pointer;
-}
-select.mono-select:disabled {
-  color: #A2A494;
-  cursor: default;
-}
 
 /* markdown fallback prose (docs generated before structured reports) */
 .md-fallback {

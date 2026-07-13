@@ -1,7 +1,7 @@
 """FastAPI app: JSON API + static SPA mount.
 
 Read endpoints never require API keys. Generation endpoints check the
-requested model's key; the live week pull checks the Voyage + Reddit keys.
+model's key; the live week pull checks the Voyage key.
 """
 from __future__ import annotations
 
@@ -92,14 +92,7 @@ def status(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
         "chunks_total": conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
         "last_ingest": json.loads(ingest_report) if ingest_report else None,
         "hybrid": state["retriever"].embedding is not None,
-        "can_pull_live": bool(os.environ.get("VOYAGE_API_KEY"))
-        and (
-            (db.get_meta(conn, "source") or "lemmy") != "reddit"
-            or bool(
-                os.environ.get("REDDIT_CLIENT_ID")
-                and os.environ.get("REDDIT_CLIENT_SECRET")
-            )
-        ),
+        "can_pull_live": bool(os.environ.get("VOYAGE_API_KEY")),
         "models_available": config.available_models(),
         "models": {
             key: {"label": cfg["label"], "vendor": cfg["vendor"]}
@@ -208,25 +201,18 @@ def generate_stream(
 
 class CompareBody(BaseModel):
     week_start: str
-    kind: Literal["rag_vs_baseline", "model_vs_model", "retrieval_vs_retrieval"]
-    model_a: str
-    model_b: str | None = None
-    retrieval_a: RetrievalMode = "hybrid"
-    retrieval_b: RetrievalMode = "bm25"
+    model_key: str
 
 
 @app.post("/api/compare")
 def compare_endpoint(body: CompareBody) -> dict:
+    """RAG vs baseline — the only comparison kind."""
     try:
         comp_id = generate.run_comparison(
             state["conn"],
             state["retriever"],
-            kind=body.kind,
             week_start=body.week_start,
-            model_a=body.model_a,
-            model_b=body.model_b,
-            retrieval_a=body.retrieval_a,
-            retrieval_b=body.retrieval_b,
+            model_key=body.model_key,
         )
     except (llm.ModelUnavailable, ValueError) as exc:
         raise HTTPException(400, str(exc))
@@ -323,20 +309,10 @@ def ingest_week() -> dict:
     if not os.environ.get("VOYAGE_API_KEY"):
         raise HTTPException(400, "Live pull requires VOYAGE_API_KEY in .env")
     conn = state["conn"]
-    source = db.get_meta(conn, "source") or "lemmy"
-    if source == "reddit" and not (
-        os.environ.get("REDDIT_CLIENT_ID") and os.environ.get("REDDIT_CLIENT_SECRET")
-    ):
-        raise HTTPException(
-            400,
-            "Reddit live pull requires REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET "
-            "in .env (free script app: reddit.com/prefs/apps)",
-        )
-    community = (db.get_meta(conn, "subreddit") or config.DEFAULT_COMMUNITY).split("@")[0].removeprefix("r/")
+    community = (db.get_meta(conn, "subreddit") or config.DEFAULT_COMMUNITY).split("@")[0]
     provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
     report = ingest.run_ingest(
-        conn, state["vector_index"], provider, community,
-        window="week", pages=1, source=source,
+        conn, state["vector_index"], provider, community, window="week", pages=1,
     )
     # BM25 is in-memory — rebuild so new chunks are searchable immediately
     state["retriever"] = _build_retriever(conn, state["vector_index"])
@@ -412,26 +388,11 @@ def stats(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
         "LEFT JOIN posts p ON p.id = c.path "
         "ORDER BY s.retrieved_count DESC, s.last_retrieved_at DESC LIMIT 25"
     ).fetchall()
-    per_model = [
-        dict(r)
-        for r in conn.execute(
-            "SELECT model_key, COUNT(*) AS docs, ROUND(AVG(latency_ms)) AS avg_latency_ms, "
-            "  ROUND(AVG(input_tokens)) AS avg_input_tokens, "
-            "  ROUND(AVG(output_tokens)) AS avg_output_tokens "
-            "FROM documents GROUP BY model_key ORDER BY docs DESC"
-        ).fetchall()
-    ]
-    for m in per_model:
-        cost = llm.est_cost_usd(
-            m["model_key"], m["avg_input_tokens"] or 0, m["avg_output_tokens"] or 0
-        )
-        m["avg_cost_usd"] = round(cost, 4) if cost is not None else None
     return {
         "total_retrievals": totals["total"],
         "chunks_total": n_chunks,
         "chunks_never_retrieved": n_chunks - totals["chunks_retrieved"],
         "top_chunks": [dict(r) for r in top],
-        "per_model": per_model,
     }
 
 

@@ -1,22 +1,17 @@
 """Community crawler: fill the vector store with a community's voices.
 
-Two sources share one pipeline:
-- lemmy (default): the open Lemmy API — no keys, no approval.
+Source: the open Lemmy API — no keys, no approval.
     python -m app.ingest games --window month
-- reddit: OAuth Data API (REDDIT_CLIENT_ID/SECRET; Reddit's 2026 approval
-  gate applies).
-    python -m app.ingest gaming --source reddit
 
 Flow: listing sweep (paginated) -> parallel comment fetches -> post markdown
--> chunk -> embed (batched) -> sqlite-vec index -> PCA. Idempotent: posts
-upsert by id and chunk IDs are content-stable, so re-runs and overlapping
-windows only add what's new.
+-> chunk -> embed (batched) -> sqlite-vec index -> 2-D projection.
+Idempotent: posts upsert by id and chunk IDs are content-stable, so re-runs
+and overlapping windows only add what's new.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -40,30 +35,6 @@ EMBED_BATCH = 64
 FETCH_WORKERS = 6
 
 
-def make_session() -> requests.Session:
-    """Session for Reddit. With REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET set
-    (free "script app" from reddit.com/prefs/apps), uses app-only OAuth
-    against oauth.reddit.com — reliable everywhere. Without them, falls back
-    to the public .json endpoints, which Reddit blocks on many networks."""
-    session = requests.Session()
-    session.headers["User-Agent"] = config.USER_AGENT
-    client_id = os.environ.get("REDDIT_CLIENT_ID")
-    client_secret = os.environ.get("REDDIT_CLIENT_SECRET")
-    session.base = "https://www.reddit.com"
-    if client_id and client_secret:
-        resp = requests.post(
-            "https://www.reddit.com/api/v1/access_token",
-            data={"grant_type": "client_credentials"},
-            auth=(client_id, client_secret),
-            headers={"User-Agent": config.USER_AGENT},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        session.headers["Authorization"] = f"Bearer {resp.json()['access_token']}"
-        session.base = "https://oauth.reddit.com"
-    return session
-
-
 def _get_json(session: requests.Session, url: str, **params) -> dict:
     """GET with one retry on rate-limit/server errors."""
     for attempt in (0, 1):
@@ -76,65 +47,13 @@ def _get_json(session: requests.Session, url: str, **params) -> dict:
     raise RuntimeError("unreachable")  # pragma: no cover
 
 
-def fetch_top_posts(
-    session: requests.Session, subreddit: str, window: str, pages: int
-) -> list[dict]:
-    posts: list[dict] = []
-    after: str | None = None
-    for _ in range(pages):
-        payload = _get_json(
-            session,
-            f"{session.base}/r/{subreddit}/top.json",
-            raw_json=1,
-            t=window,
-            limit=100,
-            **({"after": after} if after else {}),
-        )
-        children = payload["data"]["children"]
-        posts.extend(c["data"] for c in children if c["kind"] == "t3")
-        after = payload["data"].get("after")
-        if not after:
-            break
-    return posts
-
-
-def fetch_comments(session: requests.Session, permalink: str) -> list[dict]:
-    """Top-level comments only, skipping bots/stickied/deleted."""
-    try:
-        payload = _get_json(
-            session,
-            f"{session.base}{permalink.rstrip('/')}.json",
-            raw_json=1,
-            sort="top",
-            limit=COMMENTS_PER_POST * 2,
-            depth=1,
-        )
-    except Exception:
-        return []  # a failed comment fetch never sinks the ingest
-    out: list[dict] = []
-    for child in payload[1]["data"]["children"]:
-        if child.get("kind") != "t1":
-            continue
-        c = child["data"]
-        if (
-            c.get("stickied")
-            or c.get("author") in (None, "AutoModerator", "[deleted]")
-            or c.get("body") in (None, "[deleted]", "[removed]")
-        ):
-            continue
-        out.append(c)
-        if len(out) >= COMMENTS_PER_POST:
-            break
-    return out
-
-
 # ---------------------------------------------------------------- lemmy ----
 
 LEMMY_INSTANCE = "https://lemmy.world"
 
 
 def _lemmy_post_to_common(pv: dict) -> dict:
-    """Map a Lemmy post_view onto the reddit-shaped dict the pipeline uses."""
+    """Flatten a Lemmy post_view onto the dict shape the pipeline uses."""
     post, counts = pv["post"], pv["counts"]
     created = datetime.fromisoformat(post["published"].replace("Z", "+00:00"))
     return {
@@ -173,7 +92,7 @@ def fetch_top_posts_lemmy(
 
 
 def fetch_comments_lemmy(session: requests.Session, post: dict) -> list[dict]:
-    """Top-level comments in reddit comment shape (author/score/body)."""
+    """Top-level comments (author/score/body), bots and deleted skipped."""
     try:
         payload = _get_json(
             session,
@@ -320,27 +239,17 @@ def run_ingest(
     community: str,
     window: str = "month",
     pages: int = LISTING_PAGES,
-    source: str = "lemmy",
 ) -> dict:
-    if source == "lemmy":
-        session = requests.Session()
-        session.headers["User-Agent"] = config.USER_AGENT
-        display_name = f"{community}@{LEMMY_INSTANCE.removeprefix('https://')}"
-    else:
-        session = make_session()
-        display_name = f"r/{community}"
+    session = requests.Session()
+    session.headers["User-Agent"] = config.USER_AGENT
+    display_name = f"{community}@{LEMMY_INSTANCE.removeprefix('https://')}"
 
     t0 = time.perf_counter()
-    if source == "lemmy":
-        posts = fetch_top_posts_lemmy(session, community, window, pages * 2)
-        fetch_one = fetch_comments_lemmy
-    else:
-        posts = fetch_top_posts(session, community, window, pages)
-        fetch_one = lambda s, p: fetch_comments(s, p["permalink"])  # noqa: E731
+    posts = fetch_top_posts_lemmy(session, community, window, pages * 2)
     wanting_comments = select_for_comments(posts)
     with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
         fetched = pool.map(
-            lambda p: (p["name"], fetch_one(session, p)),
+            lambda p: (p["name"], fetch_comments_lemmy(session, p)),
             wanting_comments,
         )
         comments_by_id = dict(fetched)
@@ -350,7 +259,7 @@ def run_ingest(
     report = ingest_posts(
         conn, display_name, posts, comments_by_id, provider, vector_index
     )
-    db.set_meta(conn, "source", source)
+    db.set_meta(conn, "source", "lemmy")
     report.update(
         {
             "comments": sum(len(v) for v in comments_by_id.values()),
@@ -367,10 +276,9 @@ def run_ingest(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest a community's voices")
     parser.add_argument("community", nargs="?", default=config.DEFAULT_COMMUNITY)
-    parser.add_argument("--source", choices=["lemmy", "reddit"], default="lemmy")
     parser.add_argument("--window", choices=["month", "week"], default="month")
     parser.add_argument("--pages", type=int, default=LISTING_PAGES,
-                        help="listing pages (100 posts each on reddit, 100 on lemmy)")
+                        help="listing pages (~100 posts each)")
     args = parser.parse_args()
 
     conn = db.connect(config.DB_PATH)
@@ -378,7 +286,7 @@ def main() -> None:
     provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
     report = run_ingest(
         conn, vector_index, provider, args.community,
-        window=args.window, pages=args.pages, source=args.source,
+        window=args.window, pages=args.pages,
     )
     print(json.dumps(report, indent=2))
     for w in db.week_windows(conn):

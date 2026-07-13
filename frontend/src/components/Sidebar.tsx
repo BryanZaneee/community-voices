@@ -25,8 +25,6 @@ export function Sidebar({
   onToggle,
   run,
   stages,
-  model,
-  onModel,
   onGenerate,
   shadeKey,
 }: {
@@ -37,8 +35,6 @@ export function Sidebar({
   onToggle: () => void
   run: RunState
   stages: StageUi[]
-  model: string
-  onModel: (m: string) => void
   onGenerate: () => void
   shadeKey: string
 }) {
@@ -215,25 +211,8 @@ export function Sidebar({
             </div>
           )}
 
-          {/* model + generate */}
-          <div style={{ padding: '0 16px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <select
-              className="mono-select"
-              value={model}
-              disabled={models.length === 0 || running}
-              onChange={(e) => onModel(e.target.value)}
-              title={models.length === 0 ? 'Add an API key in .env to generate' : 'Model'}
-            >
-              {models.length === 0 ? (
-                <option>no model key configured</option>
-              ) : (
-                models.map((k) => (
-                  <option key={k} value={k}>
-                    {status?.models[k]?.label ?? k}
-                  </option>
-                ))
-              )}
-            </select>
+          {/* generate */}
+          <div style={{ padding: '0 16px 12px' }}>
             <button
               onClick={onGenerate}
               disabled={!canGenerate}

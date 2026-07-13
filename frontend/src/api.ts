@@ -186,12 +186,7 @@ export const api = {
     request<Doc[]>(
       `/api/documents${weekStart ? `?week_start=${weekStart}` : ''}`,
     ),
-  compare: (body: {
-    week_start: string
-    kind: string
-    model_a: string
-    model_b?: string
-  }) =>
+  compare: (body: { week_start: string; model_key: string }) =>
     request<Comparison>('/api/compare', {
       method: 'POST',
       body: JSON.stringify(body),

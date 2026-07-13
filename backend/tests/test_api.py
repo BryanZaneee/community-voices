@@ -11,9 +11,7 @@ def test_status_shape(client):
     )
     assert d["hybrid"] is False  # keyless fixture
     assert d["can_pull_live"] is False
-    assert set(d["models"]) == {
-        "claude-opus-4-8", "claude-haiku-4-5", "deepseek-v4", "deepseek-v4-flash",
-    }
+    assert set(d["models"]) == {"deepseek-v4"}
     assert d["models_available"] == []  # keyless
     # sidebar identity-card fields
     assert len(d["activity"]) == 14
@@ -73,23 +71,18 @@ def test_compare_and_latest(client):
     week = _week(client)
     resp = client.post(
         "/api/compare",
-        json={
-            "week_start": week,
-            "kind": "retrieval_vs_retrieval",
-            "model_a": "deepseek-v4",
-            "retrieval_a": "hybrid",
-            "retrieval_b": "bm25",
-        },
+        json={"week_start": week, "model_key": "deepseek-v4"},
     )
     assert resp.status_code == 200
     comp = resp.json()
+    assert comp["kind"] == "rag_vs_baseline"
     assert comp["judge"]["winner"] in ("a", "b", "tie")
-    assert 0.0 <= comp["extra"]["chunk_overlap_jaccard"] <= 1.0
+    assert comp["doc_a"]["mode"] == "baseline" and comp["doc_b"]["mode"] == "rag"
     assert comp["doc_a"]["content_md"].startswith("# Community Voices")
 
-    latest = client.get("/api/comparisons/latest?kind=retrieval_vs_retrieval").json()
+    latest = client.get("/api/comparisons/latest?kind=rag_vs_baseline").json()
     assert latest["id"] == comp["id"]
-    assert client.get("/api/comparisons/latest?kind=model_vs_model").status_code == 404
+    assert client.get("/api/comparisons/latest?kind=other").status_code == 404
 
 
 def test_generate_stream_events(client):
@@ -155,8 +148,6 @@ def test_stats_endpoint_accumulates(client):
     assert after["total_retrievals"] > before["total_retrievals"]
     assert after["chunks_total"] == before["chunks_total"]
     assert after["top_chunks"][0]["retrieved_count"] >= 1
-    deepseek = next(m for m in after["per_model"] if m["model_key"] == "deepseek-v4")
-    assert deepseek["avg_cost_usd"] > 0
 
 
 def test_bump_accounting_across_weeks(client, stub_llm):

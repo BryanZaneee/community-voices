@@ -99,38 +99,15 @@ def test_empty_week_raises(seeded, stub_llm):
         )
 
 
-def test_comparisons_all_kinds(seeded, stub_llm):
-    conn, _, retriever, weeks = seeded
-    for kind, kwargs, expect_extra in [
-        ("rag_vs_baseline", {}, False),
-        ("model_vs_model", {"model_b": "deepseek-v4-flash"}, False),
-        ("retrieval_vs_retrieval", {"retrieval_a": "hybrid", "retrieval_b": "bm25"}, True),
-    ]:
-        cid = generate.run_comparison(
-            conn, retriever, kind=kind, week_start=weeks[0],
-            model_a="deepseek-v4", **kwargs,
-        )
-        row = conn.execute("SELECT * FROM comparisons WHERE id = ?", (cid,)).fetchone()
-        judge = json.loads(row["judge_json"])
-        assert judge["winner"] in ("a", "b", "tie")
-        if expect_extra:
-            extra = json.loads(row["extra_json"])
-            assert 0.0 <= extra["chunk_overlap_jaccard"] <= 1.0
-        else:
-            assert row["extra_json"] is None
-    with pytest.raises(ValueError):
-        generate.run_comparison(
-            conn, retriever, kind="nope", week_start=weeks[0], model_a="deepseek-v4"
-        )
-
-
 def test_rag_vs_baseline_sides(seeded, stub_llm):
     conn, _, retriever, weeks = seeded
     cid = generate.run_comparison(
-        conn, retriever, kind="rag_vs_baseline", week_start=weeks[0],
-        model_a="deepseek-v4",
+        conn, retriever, week_start=weeks[0], model_key="deepseek-v4"
     )
     row = conn.execute("SELECT * FROM comparisons WHERE id = ?", (cid,)).fetchone()
+    judge = json.loads(row["judge_json"])
+    assert judge["winner"] in ("a", "b", "tie")
+    assert row["kind"] == "rag_vs_baseline" and row["extra_json"] is None
     side_a = conn.execute(
         "SELECT mode FROM documents WHERE id = ?", (row["doc_a_id"],)
     ).fetchone()["mode"]

@@ -1,9 +1,8 @@
-"""Community Voices document generation and comparisons.
+"""Community Voices document generation and the RAG-vs-baseline comparison.
 
 Retrieval: a fixed set of facet queries against the week's chunks (hybrid /
 vector / bm25), stats bumped on every retrieved chunk. Generation: RAG
-(context in prompt) or baseline (no context). Comparisons: rag_vs_baseline,
-model_vs_model, retrieval_vs_retrieval — all judged by Claude Haiku.
+(context in prompt) or baseline (no context). Comparisons are judged blind.
 """
 from __future__ import annotations
 
@@ -289,64 +288,23 @@ def run_comparison(
     conn: sqlite3.Connection,
     retriever: Retriever,
     *,
-    kind: str,
     week_start: str,
-    model_a: str,
-    model_b: str | None = None,
-    retrieval_a: RetrievalMode = "hybrid",
-    retrieval_b: RetrievalMode = "bm25",
+    model_key: str,
 ) -> int:
-    """Generate both sides + judge, store, return comparisons.id."""
-    if kind == "rag_vs_baseline":
-        # A = baseline (no RAG), B = RAG — same model
-        a_id = generate_document(
-            conn, retriever, week_start=week_start, mode="baseline", model_key=model_a
-        )
-        b_id = generate_document(
-            conn, retriever, week_start=week_start, mode="rag", model_key=model_a
-        )
-    elif kind == "model_vs_model":
-        a_id = generate_document(
-            conn, retriever, week_start=week_start, mode="rag", model_key=model_a
-        )
-        b_id = generate_document(
-            conn, retriever, week_start=week_start, mode="rag",
-            model_key=model_b or model_a,
-        )
-    elif kind == "retrieval_vs_retrieval":
-        a_id = generate_document(
-            conn, retriever, week_start=week_start, mode="rag",
-            model_key=model_a, retrieval_mode=retrieval_a,
-        )
-        b_id = generate_document(
-            conn, retriever, week_start=week_start, mode="rag",
-            model_key=model_a, retrieval_mode=retrieval_b,
-        )
-    else:
-        raise ValueError(f"unknown comparison kind: {kind}")
-
+    """RAG-vs-baseline: generate both sides + judge, store, return id.
+    A = baseline (no RAG), B = RAG — same model."""
+    a_id = generate_document(
+        conn, retriever, week_start=week_start, mode="baseline", model_key=model_key
+    )
+    b_id = generate_document(
+        conn, retriever, week_start=week_start, mode="rag", model_key=model_key
+    )
     doc_a, doc_b = _doc(conn, a_id), _doc(conn, b_id)
     judge = llm.judge_json(doc_a["content_md"], doc_b["content_md"])
-
-    extra = None
-    if kind == "retrieval_vs_retrieval":
-        ids_a = set(json.loads(doc_a["retrieved_chunk_ids"] or "[]"))
-        ids_b = set(json.loads(doc_b["retrieved_chunk_ids"] or "[]"))
-        union = ids_a | ids_b
-        extra = json.dumps(
-            {
-                "chunk_overlap_jaccard": round(len(ids_a & ids_b) / len(union), 3)
-                if union
-                else None,
-                "chunks_a": len(ids_a),
-                "chunks_b": len(ids_b),
-            }
-        )
-
     with conn:
         cur = conn.execute(
-            "INSERT INTO comparisons (kind, doc_a_id, doc_b_id, judge_json, extra_json) "
-            "VALUES (?,?,?,?,?)",
-            (kind, a_id, b_id, json.dumps(judge), extra),
+            "INSERT INTO comparisons (kind, doc_a_id, doc_b_id, judge_json) "
+            "VALUES ('rag_vs_baseline',?,?,?)",
+            (a_id, b_id, json.dumps(judge)),
         )
     return cur.lastrowid

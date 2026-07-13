@@ -1,7 +1,7 @@
 """Thin LLM client layer over the model registry in config.MODELS.
 
-complete()  -> generation via Anthropic or OpenAI-compatible (DeepSeek) SDK
-judge_json() -> structured-output comparison scoring via Claude Haiku
+complete()  -> generation via the OpenAI-compatible DeepSeek API
+judge_json() -> blind comparison scoring via DeepSeek JSON mode
 """
 from __future__ import annotations
 
@@ -58,58 +58,34 @@ def _require_key(model_key: str) -> dict:
 def complete(
     model_key: str, system: str, user: str, json_schema: dict | None = None
 ) -> GenResult:
-    """One completion. With json_schema, the response is constrained to that
-    schema (Anthropic structured outputs / DeepSeek JSON mode + schema in
-    system, same pattern as the judge)."""
+    """One completion via the OpenAI-compatible DeepSeek API. With
+    json_schema, JSON mode is enabled and the schema appended to system."""
     cfg = _require_key(model_key)
     t0 = time.perf_counter()
-    if cfg["provider"] == "anthropic":
-        import anthropic
+    from openai import OpenAI
 
-        kwargs = {}
-        if json_schema is not None:
-            kwargs["output_config"] = {
-                "format": {"type": "json_schema", "schema": json_schema}
-            }
-        client = anthropic.Anthropic()
-        resp = client.messages.create(
-            model=cfg["model"],
-            max_tokens=MAX_TOKENS,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-            **kwargs,
+    kwargs = {}
+    if json_schema is not None:
+        kwargs["response_format"] = {"type": "json_object"}
+        system = (
+            system
+            + "\nRespond ONLY with JSON matching this schema:\n"
+            + json.dumps(json_schema)
         )
-        if resp.stop_reason == "refusal":
-            raise RuntimeError(f"{cfg['label']} refused the request")
-        text = "".join(b.text for b in resp.content if b.type == "text")
-        in_tok, out_tok = resp.usage.input_tokens, resp.usage.output_tokens
-    else:  # openai_compat (DeepSeek)
-        from openai import OpenAI
-
-        kwargs = {}
-        if json_schema is not None:
-            kwargs["response_format"] = {"type": "json_object"}
-            system = (
-                system
-                + "\nRespond ONLY with JSON matching this schema:\n"
-                + json.dumps(json_schema)
-            )
-        client = OpenAI(
-            api_key=os.environ[cfg["key_env"]], base_url=cfg["base_url"]
-        )
-        resp = client.chat.completions.create(
-            model=cfg["model"],
-            max_tokens=MAX_TOKENS,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            **kwargs,
-        )
-        text = resp.choices[0].message.content or ""
-        usage = resp.usage
-        in_tok = usage.prompt_tokens if usage else 0
-        out_tok = usage.completion_tokens if usage else 0
+    client = OpenAI(api_key=os.environ[cfg["key_env"]], base_url=cfg["base_url"])
+    resp = client.chat.completions.create(
+        model=cfg["model"],
+        max_tokens=MAX_TOKENS,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        **kwargs,
+    )
+    text = resp.choices[0].message.content or ""
+    usage = resp.usage
+    in_tok = usage.prompt_tokens if usage else 0
+    out_tok = usage.completion_tokens if usage else 0
     return GenResult(
         text=text,
         model_key=model_key,
@@ -162,23 +138,10 @@ Pick the overall winner ("a", "b", or "tie") and give a 2-3 sentence rationale.
 Judge only the content; ignore formatting differences."""
 
 
-def _judge_anthropic(user_content: str) -> str:
-    cfg = _require_key(config.JUDGE_MODEL_KEY)
-    import anthropic
-
-    client = anthropic.Anthropic()
-    resp = client.messages.create(
-        model=cfg["model"],
-        max_tokens=1024,
-        system=JUDGE_SYSTEM,
-        output_config={"format": {"type": "json_schema", "schema": JUDGE_SCHEMA}},
-        messages=[{"role": "user", "content": user_content}],
-    )
-    return "".join(b.text for b in resp.content if b.type == "text")
-
-
-def _judge_deepseek(user_content: str) -> str:
-    cfg = _require_key("deepseek-v4")
+def judge_json(doc_a_md: str, doc_b_md: str) -> dict:
+    """Compare two documents blind via DeepSeek JSON mode. Never raises on
+    parse issues — raw text lands in the rationale."""
+    cfg = _require_key(config.DEFAULT_MODEL_KEY)
     from openai import OpenAI
 
     client = OpenAI(api_key=os.environ[cfg["key_env"]], base_url=cfg["base_url"])
@@ -193,24 +156,14 @@ def _judge_deepseek(user_content: str) -> str:
                 + "\nRespond ONLY with JSON matching this schema:\n"
                 + json.dumps(JUDGE_SCHEMA),
             },
-            {"role": "user", "content": user_content},
+            {
+                "role": "user",
+                "content": f"<document_a>\n{doc_a_md}\n</document_a>\n\n"
+                f"<document_b>\n{doc_b_md}\n</document_b>",
+            },
         ],
     )
-    return resp.choices[0].message.content or ""
-
-
-def judge_json(doc_a_md: str, doc_b_md: str) -> dict:
-    """Compare two documents. Prefers Claude structured outputs; falls back to
-    DeepSeek JSON mode if the Anthropic call fails (no key, no credits, ...).
-    Never raises on parse issues — raw text lands in the rationale."""
-    user_content = (
-        f"<document_a>\n{doc_a_md}\n</document_a>\n\n"
-        f"<document_b>\n{doc_b_md}\n</document_b>"
-    )
-    try:
-        text = _judge_anthropic(user_content)
-    except Exception:
-        text = _judge_deepseek(user_content)
+    text = resp.choices[0].message.content or ""
     try:
         return json.loads(text)
     except json.JSONDecodeError:
