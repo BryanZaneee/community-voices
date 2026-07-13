@@ -8,19 +8,27 @@ standout threads, and what it will talk about next week. Every claim is
 grounded in the community's actual posts via retrieval-augmented generation,
 with built-in A/B testing of the whole idea.
 
-The community is **c/games on lemmy.world**, the fediverse's largest gaming
-community, chosen deliberately: its API is public by design, so anyone can
-run the crawler and the live week-pull with **zero credentials**. (I would
-have used Reddit, but scraping it now requires an approved developer account.
-Reddit's 2026 Data API gate blocks unauthenticated `.json`/RSS access, so
-nobody cloning this repo could reproduce the ingest.)
+The default community is **c/games on lemmy.world**, the fediverse's largest
+gaming community, chosen deliberately: its API is public by design, so anyone
+can run the crawler and the live week-pull with **zero credentials**. (I
+would have used Reddit, but scraping it now requires an approved developer
+account. Reddit's 2026 Data API gate blocks unauthenticated `.json`/RSS
+access, so nobody cloning this repo could reproduce the ingest.) A sidebar
+source switcher can wipe and re-ingest the dataset from other open sources:
+c/technology, c/asklemmy, or Hacker News (Algolia search API).
 
 ![Report tab](docs/report-tab.png)
 
 ## Quick start
 
-Requirements: **Python 3.11+**. Node is *not* required; the frontend ships
-pre-built.
+Two ways to run it:
+
+**1. Hosted demo**: <https://bryanzane.com/com-voices/>. API keys are
+already configured server-side, so generation, A/B comparisons, and the
+live week pull all work with zero setup.
+
+**2. Local install**: requirements are **Python 3.11+**. Node is *not*
+required; the frontend ships pre-built.
 
 ```bash
 git clone https://github.com/BryanZaneee/community-voices.git
@@ -43,7 +51,8 @@ fill in:
 | Key | What it unlocks |
 |---|---|
 | `DEEPSEEK_API_KEY` | Generate weekly documents and run A/B comparisons (retrieval falls back to BM25 keyword search without a Voyage key) |
-| `VOYAGE_API_KEY` | Full hybrid retrieval (BM25 + vector, RRF-fused) and the "Run now" live pull, which ingests the trailing 7 days of c/games on demand |
+| `VOYAGE_API_KEY` | Full hybrid retrieval (BM25 + vector, RRF-fused), the "Run now" live pull, and switching ingest sources |
+| `ANTHROPIC_API_KEY` (optional) | Adds Claude Opus 4.8 and Claude Sonnet 5 to the sidebar model picker alongside DeepSeek |
 
 Without keys the app still boots: you can browse the embedding map, the
 ingested corpus, and the ingestion funnel, and the full test suite runs.
@@ -59,13 +68,16 @@ ingested corpus, and the ingestion funnel, and the full test suite runs.
 - **Embeddings**: the 2-D map of every chunk. Toggle topic clusters vs
   retrieval heat, and click a cluster to inspect its most-retrieved chunks.
 - **Ingestion**: the crawl funnel and latest-run numbers. **Run now** pulls
-  the trailing 7 days of c/games live (needs a Voyage key).
+  the trailing 7 days of the current source live (needs a Voyage key).
 - **Help**: a plain-English FAQ of the moving parts.
+- **Sidebar**: pick the generation model (DeepSeek V4 default; V4 Flash, and
+  the Claude models with an Anthropic key) and switch the ingest source,
+  which wipes the dataset and re-crawls the chosen community.
 
 ## What's inside
 
 ```
-Lemmy c/games (top posts + comments)   FastAPI                    React SPA
+Lemmy / Hacker News (posts + comments)  FastAPI                   React SPA
         │  crawler (open API,           │                          │
         │  parallel fetches)            │  /api/generate(/stream)  │  Report tab
         │                               │  /api/compare            │  Embeddings tab
@@ -88,8 +100,10 @@ Lemmy c/games (top posts + comments)   FastAPI                    React SPA
   Hybrid mode fuses BM25 and vector KNN with Reciprocal Rank Fusion; every
   retrieved chunk bumps a retrieval counter (the Embeddings tab leaderboard
   and the dot sizes on the embedding map).
-- **Generation**: DeepSeek V4; each generation records latency, token usage,
-  and estimated cost. The model emits a structured JSON report
+- **Generation**: a model registry with DeepSeek V4 (default), DeepSeek V4
+  Flash, and, with an Anthropic key, Claude Opus 4.8 and Claude Sonnet 5;
+  each generation records latency, token usage, and estimated cost. The
+  model emits a structured JSON report
   (headline, topics with discussion share and expandable detail, standout
   threads, confidence-scored predictions); the exported markdown is built from
   it server-side. `GET /api/generate/stream` is the SSE variant that drives
@@ -163,7 +177,10 @@ the only version that says anything true about the week.
 ## The crawler
 
 `.venv/bin/python -m app.ingest games` (from `backend/`, with `VOYAGE_API_KEY`
-in `.env`; nothing else needed):
+in `.env`; nothing else needed). Any Lemmy community works as the positional
+argument, and `--source hackernews` crawls Hacker News through the Algolia
+search API instead; the in-app source switcher drives the same registry via
+`POST /api/ingest/source`. The Lemmy path:
 
 1. **Listing sweep**: paginated requests to Lemmy's open
    `/api/v3/post/list?community_name=games&sort=TopMonth` → ~200 posts.
@@ -247,7 +264,7 @@ Four layers, run in CI on every push:
 
 | Feature | Where |
 |---|---|
-| Active community source (c/games@lemmy.world, CLI-configurable) | `app/ingest.py` |
+| Active community sources (c/games default; c/technology, c/asklemmy, Hacker News switchable) | `app/ingest.py` source registry + sidebar switcher |
 | Weekly Community Voices Document (past week + predictions) | Report tab; `.md` download + print-to-PDF |
 | RAG-empowered generation | week-scoped facet retrieval → context-grounded prompt, live SSE pipeline |
 | Vectorized table in a relational DB | sqlite-vec `vec0` table inside SQLite |
@@ -260,3 +277,7 @@ Four layers, run in CI on every push:
 
 Also included: a month of ingested history across five week windows, hybrid
 RRF retrieval, blind LLM-judge scoring, and a live-scrape button.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
