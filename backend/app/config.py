@@ -29,18 +29,20 @@ def _load_dotenv(path: Path = REPO_ROOT / ".env") -> None:
 _load_dotenv()
 
 # Generation model registry, DeepSeek V4 first (zero-key demo default).
-# Prices are USD per million tokens (input, output) for the cost estimates
-# shown in comparisons; update if a vendor changes them.
+# Prices are USD per million tokens (cache-miss input, output) for cost
+# estimates in A/B comparisons. Sources (checked 2026-07-13):
+#   DeepSeek: https://api-docs.deepseek.com/quick_start/pricing
+#   Anthropic: https://platform.claude.com/docs/en/about-claude/pricing
 MODELS: dict[str, dict] = {
     "deepseek-v4": {
         "provider": "openai_compat",
-        "model": "deepseek-chat",
+        "model": "deepseek-chat",  # aliases to deepseek-v4-flash (non-thinking)
         "base_url": "https://api.deepseek.com",
         "key_env": "DEEPSEEK_API_KEY",
         "label": "DeepSeek V4",
         "vendor": "DeepSeek",
-        "price_in": 0.28,
-        "price_out": 0.42,
+        "price_in": 0.14,
+        "price_out": 0.28,
     },
     "deepseek-v4-flash": {
         "provider": "openai_compat",
@@ -67,8 +69,9 @@ MODELS: dict[str, dict] = {
         "key_env": "ANTHROPIC_API_KEY",
         "label": "Claude Sonnet 5",
         "vendor": "Anthropic",
-        "price_in": 3.00,
-        "price_out": 15.00,
+        # Promo through 2026-08-31; rises to $3 / $15 on 2026-09-01
+        "price_in": 2.00,
+        "price_out": 10.00,
     },
 }
 

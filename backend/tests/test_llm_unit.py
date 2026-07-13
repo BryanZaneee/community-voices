@@ -9,8 +9,8 @@ def test_est_cost_usd():
         text="x", model_key="deepseek-v4",
         input_tokens=1_000_000, output_tokens=1_000_000, latency_ms=1,
     )
-    # deepseek-v4: $0.28 in + $0.42 out per MTok
-    assert r.est_cost_usd == pytest.approx(0.70)
+    # deepseek-v4: $0.14 in + $0.28 out per MTok (V4-Flash cache-miss rates)
+    assert r.est_cost_usd == pytest.approx(0.42)
 
 
 def test_est_cost_unknown_model_is_none():
@@ -31,6 +31,18 @@ def test_require_key_missing_env(monkeypatch):
 def test_complete_unknown_model_raises():
     with pytest.raises(llm.ModelUnavailable):
         llm.complete("nope", "sys", "user")
+
+
+def test_model_registry_prices_match_vendor_list():
+    """Spot-check registry prices against vendor list rates (2026-07-13)."""
+    from app import config
+
+    assert config.MODELS["deepseek-v4-flash"]["price_in"] == 0.14
+    assert config.MODELS["deepseek-v4-flash"]["price_out"] == 0.28
+    assert config.MODELS["claude-opus-4-8"]["price_in"] == 5.00
+    assert config.MODELS["claude-opus-4-8"]["price_out"] == 25.00
+    assert config.MODELS["claude-sonnet-5"]["price_in"] == 2.00
+    assert config.MODELS["claude-sonnet-5"]["price_out"] == 10.00
 
 
 def test_anthropic_json_schema_strips_unsupported_constraints():
