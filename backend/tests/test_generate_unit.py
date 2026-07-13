@@ -101,10 +101,11 @@ def test_empty_week_raises(seeded, stub_llm):
 
 def test_rag_vs_baseline_sides(seeded, stub_llm):
     conn, _, retriever, weeks = seeded
-    cid = generate.run_comparison(
+    cid, rag_id = generate.run_comparison(
         conn, retriever, week_start=weeks[0], model_key="deepseek-v4"
     )
     row = conn.execute("SELECT * FROM comparisons WHERE id = ?", (cid,)).fetchone()
+    assert rag_id == row["doc_b_id"]
     judge = json.loads(row["judge_json"])
     assert judge["winner"] in ("a", "b", "tie")
     assert row["kind"] == "rag_vs_baseline" and row["extra_json"] is None
@@ -115,3 +116,6 @@ def test_rag_vs_baseline_sides(seeded, stub_llm):
         "SELECT mode FROM documents WHERE id = ?", (row["doc_b_id"],)
     ).fetchone()["mode"]
     assert (side_a, side_b) == ("baseline", "rag")
+    # the judge grades against the RAG doc's real retrieved source material
+    ref = stub_llm["judge"][-1]["reference"]
+    assert ref and "[title=" in ref

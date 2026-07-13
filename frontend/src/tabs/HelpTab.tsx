@@ -61,8 +61,13 @@ export function HelpTab({ status }: { status: Status | null }) {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {items.map((h) => (
-          <div key={h.q} style={{ ...card('16px 18px'), minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+          <details key={h.q} style={{ ...card('16px 18px'), minWidth: 0 }}>
+            <summary
+              style={{
+                display: 'flex', alignItems: 'baseline', gap: 8, cursor: 'pointer',
+                listStyle: 'none',
+              }}
+            >
               <span
                 style={{
                   width: 7, height: 7, borderRadius: '50%', background: ACCENT,
@@ -72,9 +77,9 @@ export function HelpTab({ status }: { status: Status | null }) {
               <span style={{ fontFamily: DISPLAY, fontSize: 14.5, fontWeight: 600, letterSpacing: '-.01em' }}>
                 {h.q}
               </span>
-            </div>
-            <div style={{ fontSize: 12.5, lineHeight: 1.62, color: '#4A4C3E' }}>{h.a}</div>
-          </div>
+            </summary>
+            <div style={{ fontSize: 12.5, lineHeight: 1.62, color: '#4A4C3E', marginTop: 6 }}>{h.a}</div>
+          </details>
         ))}
       </div>
     </div>

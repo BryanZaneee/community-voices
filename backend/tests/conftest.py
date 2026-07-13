@@ -165,8 +165,8 @@ def stub_llm(monkeypatch):
             latency_ms=42,
         )
 
-    def fake_judge(doc_a, doc_b):
-        calls["judge"].append({"a": doc_a, "b": doc_b})
+    def fake_judge(doc_a, doc_b, reference=None):
+        calls["judge"].append({"a": doc_a, "b": doc_b, "reference": reference})
         crit = {"specificity": 3, "evidence": 3, "temporal_grounding": 3, "usefulness": 3}
         return {"scores": {"a": crit, "b": dict(crit, specificity=5)},
                 "winner": "b", "rationale": "stubbed"}

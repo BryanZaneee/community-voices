@@ -14,6 +14,9 @@ export const SHADES: Record<string, Shade> = {
   embed:    { speed: 1.6,  distortion: 0.85, swirl: 1.0,  colors: ['#EAF2EA', '#9CC9A8', '#2E7D5B', '#153B2A', '#F4F4EF'] },
   retrieve: { speed: 0.85, distortion: 0.3,  swirl: 0.55, colors: ['#EEF0F2', '#B9C2CC', '#5B6770', '#2A3138', '#DDE3BC'] },
   write:    { speed: 0.5,  distortion: 0.6,  swirl: 0.25, colors: ['#FAFAF7', '#E7EBD2', '#A9BA4A', '#6A791D'] },
+  predict:  { speed: 0.75, distortion: 0.7,  swirl: 0.7,  colors: ['#F5F1E8', '#E3C98F', '#C2892B', '#6E4E12', '#F4F4EF'] },
+  ab:       { speed: 1.0,  distortion: 0.5,  swirl: 0.85, colors: ['#EEF0F2', '#C4CBBD', '#6E7D5E', '#2F3A28', '#E7EBD2'] },
+  evaluate: { speed: 0.6,  distortion: 0.4,  swirl: 0.5,  colors: ['#EAF1F0', '#A8C8C2', '#3E7D74', '#1C3D38', '#F4F4EF'] },
   done:     { speed: 0.22, distortion: 0.5,  swirl: 0.3,  colors: ['#FAFAF7', '#EAF2EA', '#9CC9A8', '#2E7D5B'] },
 }
 

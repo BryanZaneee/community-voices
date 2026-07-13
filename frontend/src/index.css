@@ -63,6 +63,9 @@ button {
 .link-btn:hover {
   color: #153B2A !important;
 }
+summary::-webkit-details-marker {
+  display: none;
+}
 
 
 /* markdown fallback prose (docs generated before structured reports) */

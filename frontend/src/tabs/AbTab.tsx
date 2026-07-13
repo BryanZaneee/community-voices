@@ -95,12 +95,14 @@ function CompositionBar({ label, stats }: { label: string; stats: ClaimStats }) 
 
 export function AbTab({
   comp,
+  judging = false,
   canRun,
   busy,
   onRun,
   error,
 }: {
   comp: Comparison | null
+  judging?: boolean
   canRun: boolean
   busy: boolean
   onRun: () => void
@@ -110,6 +112,11 @@ export function AbTab({
     return (
       <div style={{ ...card(), maxWidth: 560 }}>
         <div style={{ ...kicker, marginBottom: 10 }}>A/B — RAG VS LLM-ONLY</div>
+        {judging && (
+          <div style={{ fontFamily: MONO, fontSize: 11, color: '#1E5940', marginBottom: 10 }}>
+            Judge still deciding… the verdict will appear here.
+          </div>
+        )}
         <div style={{ fontSize: 12.8, lineHeight: 1.6, color: '#4A4C3E', marginBottom: 14 }}>
           No comparison stored yet. Run one to see the same weekly report written
           twice — once grounded on retrieved chunks, once from the model&rsquo;s
@@ -232,7 +239,8 @@ export function AbTab({
             </span>
           </div>
           <div style={{ fontFamily: MONO, fontSize: 10, color: '#8A8C7C', marginBottom: 14 }}>
-            {base.model_key}, no retrieval context
+            {base.model_key}, no data access — writing from model memory alone,
+            so its specifics are unverifiable guesses
           </div>
           <Paragraphs blocks={baseBlocks} side="base" />
         </div>
@@ -260,8 +268,15 @@ export function AbTab({
       >
         {/* judged criteria */}
         <div style={card()}>
-          <div style={{ ...kicker, marginBottom: 14 }}>JUDGED CRITERIA (BLIND RUBRIC, 1–5)</div>
-          {judge?.scores ? (
+          <div style={{ ...kicker, marginBottom: 14 }}>
+            JUDGED CRITERIA (BLIND RUBRIC, 1–5, GRADED VS THE WEEK&rsquo;S SOURCES)
+          </div>
+          {judging ? (
+            <div style={{ fontSize: 12, color: '#1E5940' }}>
+              Judge still deciding… fresh scores will land here when the
+              blind rubric is done.
+            </div>
+          ) : judge?.scores ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {Object.entries(CRITERIA_LABELS).map(([key, meta]) => {
                 const ragScore = judge.scores!.b[key as keyof typeof judge.scores.b]
@@ -343,7 +358,8 @@ export function AbTab({
         }}
       >
         <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.14em', color: '#1E5940', marginBottom: 12 }}>
-          VERDICT — {judge?.winner === 'b' ? 'RAG' : judge?.winner === 'a' ? 'LLM ONLY' : 'TIE'}
+          VERDICT — {judging ? 'JUDGE STILL DECIDING…'
+            : judge?.winner === 'b' ? 'RAG' : judge?.winner === 'a' ? 'LLM ONLY' : 'TIE'}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, marginBottom: 14 }}>
           <div>
@@ -377,7 +393,9 @@ export function AbTab({
           <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: '.1em', color: '#8A8C7C', marginRight: 8 }}>
             JUDGE
           </span>
-          {judge?.rationale ?? 'No judge rationale stored for this comparison.'}
+          {judging
+            ? 'Judge still deciding… the rationale will appear here.'
+            : judge?.rationale ?? 'No judge rationale stored for this comparison.'}
         </div>
       </div>
     </div>

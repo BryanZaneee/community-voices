@@ -149,7 +149,9 @@ export interface Stats {
   }[]
 }
 
-export type StageKey = 'crawl' | 'reduce' | 'embed' | 'retrieve' | 'write'
+export type StageKey =
+  | 'crawl' | 'reduce' | 'embed' | 'retrieve' | 'write'
+  | 'predict' | 'ab' | 'evaluate'
 
 export interface StageEvent {
   stage: StageKey
@@ -202,10 +204,13 @@ export const api = {
 }
 
 /** SSE generation. Calls back per stage event; resolves with the finished
- * Doc or rejects on an error event / broken stream. */
+ * Doc on `done`, then keeps listening — the blind judge is still deciding.
+ * `onComparison` fires exactly once when the stream ends: the fresh
+ * Comparison, or null if judging failed / the stream broke. */
 export function generateStream(
   params: { week_start: string; model_key: string; mode?: 'rag' | 'baseline' },
   onStage: (ev: StageEvent) => void,
+  onComparison?: (comp: Comparison | null) => void,
 ): Promise<Doc> {
   const qs = new URLSearchParams({
     week_start: params.week_start,
@@ -214,28 +219,42 @@ export function generateStream(
   })
   return new Promise((resolve, reject) => {
     const es = new EventSource(`/api/generate/stream?${qs}`)
-    // Close before settling and never act twice: EventSource auto-reconnects
+    // Close exactly once, on any terminal path: EventSource auto-reconnects
     // on any connection close it didn't initiate, which would re-run the
     // whole (paid) generation server-side.
-    let settled = false
-    const settle = (fn: () => void) => {
-      if (settled) return
-      settled = true
+    let gotDoc = false
+    let closed = false
+    const finish = (comp: Comparison | null) => {
+      if (closed) return
+      closed = true
       es.close()
-      fn()
+      onComparison?.(comp)
     }
     es.addEventListener('stage', (e) => {
-      if (!settled) onStage(JSON.parse((e as MessageEvent).data))
+      if (!closed) onStage(JSON.parse((e as MessageEvent).data))
     })
     es.addEventListener('done', (e) => {
-      const data = (e as MessageEvent).data
-      settle(() => resolve(JSON.parse(data)))
+      if (gotDoc) return
+      gotDoc = true
+      resolve(JSON.parse((e as MessageEvent).data))
+    })
+    es.addEventListener('comparison', (e) => {
+      let comp: Comparison | null = null
+      try {
+        const parsed = JSON.parse((e as MessageEvent).data)
+        if (parsed?.id) comp = parsed
+      } catch {
+        /* verdict unavailable */
+      }
+      finish(comp)
     })
     es.addEventListener('error', (e) => {
       const data = (e as MessageEvent).data
-      settle(() =>
-        reject(new Error(data ? JSON.parse(data).detail : 'stream failed')),
-      )
+      if (!gotDoc) {
+        gotDoc = true
+        reject(new Error(data ? JSON.parse(data).detail : 'stream failed'))
+      }
+      finish(null)
     })
   })
 }

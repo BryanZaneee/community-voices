@@ -99,10 +99,15 @@ def test_generate_stream_events(client):
         for line in body.splitlines()
         if line.startswith("data: ") and '"stage"' in line
     ]
-    # cached ingest stages first, then live retrieve/write
+    # cached ingest stages first, then the live pipeline incl. the A/B run
     assert stages[:3] == ["crawl", "reduce", "embed"]
-    assert "retrieve" in stages and "write" in stages
+    for live in ("retrieve", "write", "predict", "ab", "evaluate"):
+        assert live in stages
     assert "event: done" in body
+    # report is delivered before the judge finishes; verdict arrives last
+    assert body.index("event: done") < body.index('"stage": "evaluate"')
+    comp = json.loads(body.split("event: comparison\ndata: ")[1].split("\n")[0])
+    assert comp["kind"] == "rag_vs_baseline" and comp["judge"]["winner"]
     done = json.loads(body.split("event: done\ndata: ")[1].split("\n")[0])
     assert done["week_start"] == week
     assert done["content_md"].startswith("# Community Voices")

@@ -6,8 +6,8 @@ import type { RunState, StageUi } from '../runstate'
 
 export const NAVDEF = [
   { key: 'report', label: 'Weekly report', shapeR: '2px', shapeTf: 'none', fill: true, split: false },
-  { key: 'embed', label: 'Embeddings', shapeR: '50%', shapeTf: 'none', fill: true, split: false },
   { key: 'ab', label: 'A/B — RAG vs LLM', shapeR: '2px', shapeTf: 'none', fill: false, split: true },
+  { key: 'embed', label: 'Embeddings', shapeR: '50%', shapeTf: 'none', fill: true, split: false },
   { key: 'ingest', label: 'Ingestion', shapeR: '2px', shapeTf: 'rotate(45deg)', fill: true, split: false },
   { key: 'help', label: 'Help', shapeR: '50%', shapeTf: 'none', fill: false, split: false },
 ] as const
@@ -91,9 +91,6 @@ export function Sidebar({
             <div>
               <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 15, letterSpacing: '-.01em', lineHeight: 1.1 }}>
                 Community Voices
-              </div>
-              <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.14em', color: '#8A8C7C', marginTop: 2 }}>
-                WEEKLY DIGEST · RAG
               </div>
             </div>
             <button

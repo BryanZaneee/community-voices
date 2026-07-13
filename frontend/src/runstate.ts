@@ -1,6 +1,6 @@
 // Generation run state: SSE events in, smoothly-paced stage/progress out.
 import { useEffect, useRef, useState } from 'react'
-import { generateStream, type Doc, type StageKey, type Status } from './api'
+import { generateStream, type Comparison, type Doc, type StageKey, type Status } from './api'
 import { communityIdentity, fmt } from './viewmodel'
 
 export interface RunState {
@@ -18,7 +18,7 @@ export interface StageUi {
 }
 
 export const STAGE_KEYS: StageKey[] = [
-  'crawl', 'reduce', 'embed', 'retrieve', 'write',
+  'crawl', 'reduce', 'embed', 'retrieve', 'write', 'predict', 'ab', 'evaluate',
 ]
 
 export function baseStages(status: Status | null, week: string): StageUi[] {
@@ -55,16 +55,36 @@ export function baseStages(status: Status | null, week: string): StageUi[] {
       desc: 'Drafting digest & predictions',
       detail: 'grounded on retrieved chunks',
     },
+    {
+      key: 'predict',
+      label: 'Predict',
+      desc: "Forecasting next week from this week's signals",
+      detail: 'confidence-scored forecasts',
+    },
+    {
+      key: 'ab',
+      label: 'A/B',
+      desc: 'Generating the no-RAG baseline for comparison',
+      detail: 'same model · no retrieval',
+    },
+    {
+      key: 'evaluate',
+      label: 'Evaluate',
+      desc: 'Blind LLM judge scores both drafts',
+      detail: 'specificity · evidence · grounding · usefulness',
+    },
   ]
 }
 
-// cumulative progress ceiling per stage (write dominates real wall-clock)
-export const CEILS = [0.08, 0.16, 0.26, 0.55, 0.98]
+// cumulative progress ceiling per stage (the write and A/B LLM calls
+// dominate real wall-clock; evaluate is one judge call, predict is instant)
+export const CEILS = [0.05, 0.1, 0.15, 0.22, 0.48, 0.52, 0.78, 0.98]
 const MIN_STAGE_MS = 650
 
 export function useGeneration(
   status: Status | null,
   onDoc: (doc: Doc) => void,
+  onComparison?: (comp: Comparison | null) => void,
 ) {
   const [run, setRun] = useState<RunState>({
     phase: 'idle', stage: 0, prog: 0, reveal: false,
@@ -80,7 +100,7 @@ export function useGeneration(
 
   /** Show an existing report without animating (page load, week switch). */
   const showDone = (reveal = true) =>
-    setRun({ phase: 'done', stage: 4, prog: 1, reveal })
+    setRun({ phase: 'done', stage: STAGE_KEYS.length - 1, prog: 1, reveal })
 
   const showIdle = () => setRun({ phase: 'idle', stage: 0, prog: 0, reveal: false })
 
@@ -113,7 +133,7 @@ export function useGeneration(
           return s
         }),
       )
-    })
+    }, onComparison)
       .then((doc) => {
         target.current.doc = doc
       })

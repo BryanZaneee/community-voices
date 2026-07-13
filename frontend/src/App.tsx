@@ -38,10 +38,19 @@ export default function App() {
     api.embeddings().then(setEmb).catch(() => {})
   }, [])
 
-  const gen = useGeneration(status, (d) => {
-    setDoc(d)
-    refreshRetrievalViews()
-  })
+  // true from regenerate-start until the blind judge's verdict arrives
+  const [judging, setJudging] = useState(false)
+  const gen = useGeneration(
+    status,
+    (d) => {
+      setDoc(d)
+      refreshRetrievalViews()
+    },
+    (c) => {
+      setJudging(false)
+      if (c) setComp(c)
+    },
+  )
   const { showDone, showIdle } = gen
 
   // boot
@@ -89,6 +98,7 @@ export default function App() {
   const onGenerate = () => {
     if (!canGenerate || !week) return
     setTab('report')
+    setJudging(true)
     gen.start(week, model)
   }
 
@@ -124,7 +134,6 @@ export default function App() {
   }
 
   const selectedWeek = status?.weeks.find((w) => w.week_start === week) ?? null
-  const instance = status?.subreddit?.split('@')[1] ?? ''
   const hasReport = gen.run.phase === 'done' && !!doc
 
   return (
@@ -202,7 +211,6 @@ export default function App() {
                     </option>
                   ))}
                 </select>
-                <span>· {instance}</span>
               </div>
             </div>
           </div>
@@ -246,6 +254,7 @@ export default function App() {
             {tab === 'ab' && (
               <AbTab
                 comp={comp}
+                judging={judging}
                 canRun={!!model}
                 busy={abBusy}
                 onRun={onRunAb}
@@ -311,7 +320,7 @@ function Takeover({ run, stages, shadeKey }: { run: RunState; stages: StageUi[];
         }}
       >
         <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.16em', color: '#3A421A' }}>
-          STAGE {run.stage + 1} / 5
+          STAGE {run.stage + 1} / {STAGE_KEYS.length}
         </div>
         <div style={{ fontFamily: DISPLAY, fontSize: 52, fontWeight: 700, letterSpacing: '-.025em', lineHeight: 1 }}>
           {cur?.label}

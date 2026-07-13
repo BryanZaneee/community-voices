@@ -166,23 +166,42 @@ def generate_stream(
     def progress(stage: str, info: dict) -> None:
         q.put(_sse("stage", {"stage": stage, **info}))
 
+    def send_done(doc_id: int) -> None:
+        q.put(_sse("done", _row_to_doc(
+            conn.execute(
+                "SELECT * FROM documents WHERE id = ?", (doc_id,)
+            ).fetchone()
+        )))
+
     def run() -> None:
         try:
-            doc_id = generate.generate_document(
-                conn,
-                state["retriever"],
-                week_start=week_start,
-                mode=mode,
-                model_key=model_key,
-                retrieval_mode=retrieval_mode,
-                progress=progress,
-            )
-            doc = _row_to_doc(
-                conn.execute(
-                    "SELECT * FROM documents WHERE id = ?", (doc_id,)
-                ).fetchone()
-            )
-            q.put(_sse("done", doc))
+            if mode == "rag":
+                # Regenerate runs the full A/B: RAG doc + baseline + judge,
+                # so the predict/ab/evaluate stages report real work. `done`
+                # fires as soon as both drafts exist — the judge deliberates
+                # while the user reads, then `comparison` delivers the verdict.
+                comp_id, _ = generate.run_comparison(
+                    conn,
+                    state["retriever"],
+                    week_start=week_start,
+                    model_key=model_key,
+                    progress=progress,
+                    on_ready=send_done,
+                )
+                q.put(_sse(
+                    "comparison",
+                    _comparison(comp_id, conn) if comp_id is not None else {},
+                ))
+            else:
+                send_done(generate.generate_document(
+                    conn,
+                    state["retriever"],
+                    week_start=week_start,
+                    mode=mode,
+                    model_key=model_key,
+                    retrieval_mode=retrieval_mode,
+                    progress=progress,
+                ))
         except Exception as exc:  # surfaced to the client as an SSE event
             q.put(_sse("error", {"detail": str(exc)}))
         finally:
@@ -208,7 +227,7 @@ class CompareBody(BaseModel):
 def compare_endpoint(body: CompareBody) -> dict:
     """RAG vs baseline — the only comparison kind."""
     try:
-        comp_id = generate.run_comparison(
+        comp_id, _ = generate.run_comparison(
             state["conn"],
             state["retriever"],
             week_start=body.week_start,

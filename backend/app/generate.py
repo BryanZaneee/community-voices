@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Callable
 
 from app import db, llm
@@ -284,27 +285,117 @@ def _doc(conn: sqlite3.Connection, doc_id: int) -> sqlite3.Row:
     return conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
 
 
+def _predictions_detail(doc_b: sqlite3.Row) -> str:
+    try:
+        preds = json.loads(doc_b["report_json"])["predictions"]
+        avg = round(sum(p["confidence"] for p in preds) / len(preds))
+        return f"{len(preds)} forecasts · avg {avg}% confidence"
+    except (TypeError, KeyError, ValueError, ZeroDivisionError):
+        return "forecasts drafted"
+
+
+def _reference_block(conn: sqlite3.Connection, doc_b: sqlite3.Row) -> str | None:
+    """The RAG doc's actual retrieved chunks, formatted like its prompt
+    context — ground truth for the judge to grade both docs against."""
+    ids = json.loads(doc_b["retrieved_chunk_ids"] or "null") or []
+    if not ids:
+        return None
+    ph = ",".join("?" * len(ids))
+    rows = conn.execute(
+        f"SELECT path, content FROM chunks WHERE chunk_id IN ({ph})", ids
+    ).fetchall()
+    chunks = [SimpleNamespace(path=r["path"], content=r["content"]) for r in rows]
+    return _context_block(conn, chunks) if chunks else None
+
+
+def _judge_detail(judge: dict) -> str:
+    winner = {"a": "baseline", "b": "RAG"}.get(judge.get("winner"), "tie")
+    scores = judge.get("scores")
+    if not scores:
+        return f"winner: {winner}"
+    return (
+        f"winner: {winner} · RAG {sum(scores['b'].values())}"
+        f" vs baseline {sum(scores['a'].values())} / 20"
+    )
+
+
 def run_comparison(
     conn: sqlite3.Connection,
     retriever: Retriever,
     *,
     week_start: str,
     model_key: str,
-) -> int:
-    """RAG-vs-baseline: generate both sides + judge, store, return id.
-    A = baseline (no RAG), B = RAG — same model."""
-    a_id = generate_document(
-        conn, retriever, week_start=week_start, mode="baseline", model_key=model_key
-    )
+    progress: Callable[[str, dict], None] | None = None,
+    on_ready: Callable[[int], None] | None = None,
+) -> tuple[int | None, int]:
+    """RAG-vs-baseline: generate both sides + judge, store, return
+    (comparison id, RAG doc id). A = baseline (no RAG), B = RAG — same model.
+
+    The RAG doc is generated first; if the baseline or judge then fails, no
+    comparison row is stored and the id comes back None — the caller still
+    has a finished report to show. `on_ready(rag_doc_id)` fires once as soon
+    as the report is deliverable (both drafts done, judge still deciding) so
+    the SSE endpoint can hand the report over while judging continues."""
+    emit = progress or (lambda stage, info: None)
+    ready_sent = False
+
+    def ready(b_id: int) -> None:
+        nonlocal ready_sent
+        if on_ready and not ready_sent:
+            ready_sent = True
+            on_ready(b_id)
     b_id = generate_document(
-        conn, retriever, week_start=week_start, mode="rag", model_key=model_key
+        conn,
+        retriever,
+        week_start=week_start,
+        mode="rag",
+        model_key=model_key,
+        progress=progress,
     )
-    doc_a, doc_b = _doc(conn, a_id), _doc(conn, b_id)
-    judge = llm.judge_json(doc_a["content_md"], doc_b["content_md"])
+    doc_b = _doc(conn, b_id)
+    emit("predict", {"status": "end", "detail": _predictions_detail(doc_b)})
+
+    def baseline_progress(stage: str, info: dict) -> None:
+        if stage != "write":
+            return
+        if info.get("status") == "start":
+            emit("ab", {"status": "start",
+                        "detail": "baseline draft · no retrieval · same model"})
+        else:
+            emit("ab", {"status": "end",
+                        "detail": f"baseline · {info.get('latency_ms')} ms · "
+                                  f"{info.get('output_tokens')} tok"})
+
+    try:
+        a_id = generate_document(
+            conn,
+            retriever,
+            week_start=week_start,
+            mode="baseline",
+            model_key=model_key,
+            progress=baseline_progress,
+        )
+        doc_a = _doc(conn, a_id)
+        ready(b_id)
+        emit("evaluate", {"status": "start",
+                          "detail": "blind judge · 4 criteria · graded "
+                                    "against the week's source material"})
+        judge = llm.judge_json(
+            doc_a["content_md"],
+            doc_b["content_md"],
+            reference=_reference_block(conn, doc_b),
+        )
+        emit("evaluate", {"status": "end", "detail": _judge_detail(judge)})
+    except Exception as exc:
+        if progress is None:
+            raise
+        ready(b_id)
+        emit("evaluate", {"status": "end", "detail": f"comparison skipped: {exc}"})
+        return None, b_id
     with conn:
         cur = conn.execute(
             "INSERT INTO comparisons (kind, doc_a_id, doc_b_id, judge_json) "
             "VALUES ('rag_vs_baseline',?,?,?)",
             (a_id, b_id, json.dumps(judge)),
         )
-    return cur.lastrowid
+    return cur.lastrowid, b_id

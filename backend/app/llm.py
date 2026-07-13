@@ -137,13 +137,30 @@ Score each document 1-5 on:
 Pick the overall winner ("a", "b", or "tie") and give a 2-3 sentence rationale.
 Judge only the content; ignore formatting differences."""
 
+JUDGE_REFERENCE_NOTE = """
+You are also given <source_material>: the community's actual posts from that
+week. Treat it as ground truth. Claims consistent with it are evidence;
+specific posts, events, or numbers it does not support are fabricated and
+must drag down evidence and temporal_grounding, however confident they sound.
+Do not reveal or guess which document had access to the source material."""
 
-def judge_json(doc_a_md: str, doc_b_md: str) -> dict:
-    """Compare two documents blind via DeepSeek JSON mode. Never raises on
-    parse issues — raw text lands in the rationale."""
+
+def judge_json(doc_a_md: str, doc_b_md: str, reference: str | None = None) -> dict:
+    """Compare two documents blind via DeepSeek JSON mode. With `reference`
+    (the week's real source material) claims are graded against ground truth,
+    so confident fabrication can't win on specificity. Never raises on parse
+    issues — raw text lands in the rationale."""
     cfg = _require_key(config.DEFAULT_MODEL_KEY)
     from openai import OpenAI
 
+    system = JUDGE_SYSTEM
+    user = (
+        f"<document_a>\n{doc_a_md}\n</document_a>\n\n"
+        f"<document_b>\n{doc_b_md}\n</document_b>"
+    )
+    if reference:
+        system += JUDGE_REFERENCE_NOTE
+        user = f"<source_material>\n{reference}\n</source_material>\n\n" + user
     client = OpenAI(api_key=os.environ[cfg["key_env"]], base_url=cfg["base_url"])
     resp = client.chat.completions.create(
         model=cfg["model"],
@@ -152,15 +169,11 @@ def judge_json(doc_a_md: str, doc_b_md: str) -> dict:
         messages=[
             {
                 "role": "system",
-                "content": JUDGE_SYSTEM
+                "content": system
                 + "\nRespond ONLY with JSON matching this schema:\n"
                 + json.dumps(JUDGE_SCHEMA),
             },
-            {
-                "role": "user",
-                "content": f"<document_a>\n{doc_a_md}\n</document_a>\n\n"
-                f"<document_b>\n{doc_b_md}\n</document_b>",
-            },
+            {"role": "user", "content": user},
         ],
     )
     text = resp.choices[0].message.content or ""
