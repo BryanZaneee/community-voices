@@ -22,7 +22,7 @@ export interface IngestReport {
 }
 
 export interface Status {
-  subreddit: string | null
+  community: string | null
   source: string
   ingested_at: string | null
   embedding_model: string | null
@@ -73,7 +73,7 @@ export interface Doc {
   mode: 'rag' | 'baseline'
   model_key: string
   week_start: string
-  subreddit: string
+  community: string
   content_md: string
   report_json: Report | null
   retrieved_chunk_ids: string[] | null
@@ -104,7 +104,6 @@ export interface Comparison {
   doc_a: Doc
   doc_b: Doc
   judge: Judge | null
-  extra: { chunk_overlap_jaccard: number | null } | null
 }
 
 export interface EmbeddingPoint {

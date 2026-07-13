@@ -52,7 +52,7 @@ const HELP_ITEMS = (community: string, model: string) => [
 ]
 
 export function HelpTab({ status }: { status: Status | null }) {
-  const ident = communityIdentity(status?.subreddit ?? null, status?.source)
+  const ident = communityIdentity(status?.community ?? null, status?.source)
   const items = HELP_ITEMS(ident.name, status?.embedding_model ?? 'Voyage')
   return (
     <div>

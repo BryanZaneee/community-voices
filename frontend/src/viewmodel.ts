@@ -24,17 +24,17 @@ export const fmtUsd = (v: number | null | undefined): string =>
   v == null ? '-' : `$${v.toFixed(3)}`
 
 /** "games@lemmy.world" -> { name: "c/games", instance: "lemmy.world" } */
-export function communityIdentity(subreddit: string | null, source?: string) {
-  if (!subreddit) return { name: '-', instance: '', initial: '?' }
+export function communityIdentity(community: string | null, source?: string) {
+  if (!community) return { name: '-', instance: '', initial: '?' }
   if (source === 'hackernews') {
     return { name: 'Hacker News', instance: 'news.ycombinator.com', initial: 'Y' }
   }
-  const [name, instance] = subreddit.includes('@')
-    ? subreddit.split('@')
-    : [subreddit, '']
+  const [name, instance] = community.includes('@')
+    ? community.split('@')
+    : [community, '']
   const clean = name.replace(/^r\//, '')
   return {
-    name: subreddit.includes('@') ? `c/${clean}` : `r/${clean}`,
+    name: community.includes('@') ? `c/${clean}` : `r/${clean}`,
     instance,
     initial: clean[0]?.toUpperCase() ?? '?',
   }

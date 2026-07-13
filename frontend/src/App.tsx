@@ -167,7 +167,7 @@ export default function App() {
   const currentSourceKey =
     status?.source === 'hackernews'
       ? 'hackernews'
-      : `lemmy:${(status?.subreddit ?? '').split('@')[0]}`
+      : `lemmy:${(status?.community ?? '').split('@')[0]}`
 
   return (
     <div

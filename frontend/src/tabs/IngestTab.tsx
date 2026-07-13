@@ -3,7 +3,7 @@ import { ACCENT, communityIdentity, fmt } from '../viewmodel'
 import { card, DISPLAY, kicker, MONO, whiteBtn } from '../ui'
 
 const STEPS = (status: Status | null) => {
-  const ident = communityIdentity(status?.subreddit ?? null, status?.source)
+  const ident = communityIdentity(status?.community ?? null, status?.source)
   const spec = status?.ingest_spec
   const isHn = status?.source === 'hackernews'
   return [

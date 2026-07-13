@@ -51,7 +51,7 @@ export function Sidebar({
   onModel: (key: string) => void
 }) {
   const setShaderEl = useMeshShader(shadeKey, true)
-  const ident = communityIdentity(status?.subreddit ?? null, status?.source)
+  const ident = communityIdentity(status?.community ?? null, status?.source)
   const running = run.phase === 'run'
   const models = status?.models_available ?? []
   const sources = status?.sources ?? []
