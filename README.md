@@ -36,8 +36,9 @@ embeddings, and 5 week windows. Nothing is pre-generated. Every document and
 A/B comparison you see is produced live when you click the button, so you
 watch the RAG pipeline do its work rather than browse canned output.
 
-Generation needs two free API keys. Copy `.env.example` to `.env` in the
-repo root and fill in:
+Generation needs two free API keys (DeepSeek: platform.deepseek.com, Voyage:
+dashboard.voyageai.com). Copy `.env.example` to `.env` in the repo root and
+fill in:
 
 | Key | What it unlocks |
 |---|---|
@@ -46,6 +47,20 @@ repo root and fill in:
 
 Without keys the app still boots: you can browse the embedding map, the
 ingested corpus, and the ingestion funnel, and the full test suite runs.
+
+## Using the app
+
+- **Weekly report**: pick a week, click **Generate report**, and watch the
+  eight-stage pipeline run live. Download the finished document as `.md` or
+  print to PDF.
+- **A/B (RAG vs LLM)**: every generation also writes the no-retrieval
+  baseline and judges both blind; this tab shows the side-by-side documents,
+  scorecard, and verdict.
+- **Embeddings**: the 2-D map of every chunk. Toggle topic clusters vs
+  retrieval heat, and click a cluster to inspect its most-retrieved chunks.
+- **Ingestion**: the crawl funnel and latest-run numbers. **Run now** pulls
+  the trailing 7 days of c/games live (needs a Voyage key).
+- **Help**: a plain-English FAQ of the moving parts.
 
 ## What's inside
 
@@ -78,13 +93,17 @@ Lemmy c/games (top posts + comments)   FastAPI                    React SPA
   (headline, topics with discussion share and expandable detail, standout
   threads, confidence-scored predictions); the exported markdown is built from
   it server-side. `GET /api/generate/stream` is the SSE variant that drives
-  the UI's live five-stage pipeline animation.
+  the UI's live eight-stage pipeline animation.
 - **Embedding map**: the stored 2-D projection uses UMAP when `umap-learn` is
   installed (the committed DB ships UMAP coords) and falls back to plain PCA
   otherwise; k-means clusters with TF-IDF term labels color the map.
   Recompute anytime without re-embedding: `.venv/bin/python -m app.rag.pca`.
 - **Judging**: every comparison is scored blind on specificity, evidence,
-  temporal grounding, and usefulness via DeepSeek JSON mode.
+  temporal grounding, and usefulness via DeepSeek JSON mode. The judge is
+  also handed the RAG run's actual retrieved chunks as `<source_material>`
+  ground truth: claims the week's real posts don't support are scored as
+  fabrications, so confident invention can't win on specificity. It is never
+  told which document had access to that material.
 
 ## Report Flow
 
@@ -113,12 +132,19 @@ What happens between clicking **Generate** and reading the report:
    the queries, retrieved chunk ids, retrieval mode, latency, and token
    counts. If the model ignored the schema, its raw text is kept and
    rendered as plain markdown.
-6. **Done**: the stream ends with a `done` event carrying the stored
-   document. The frontend paces the progress bar smoothly (SSE events
-   set the stage floor; a ticker eases toward each stage's ceiling, and
-   the write stage dominates real wall-clock), then fades the report in.
-   If generation fails, an `error` event surfaces the message and the
-   previously stored report stays on screen.
+6. **Predict / A/B**: a `predict` stage reports the forecasts parsed from
+   the stored report, then the same model writes the no-retrieval baseline
+   document (`ab` stage) for the comparison.
+7. **Done, then judged**: as soon as both drafts exist the stream emits
+   `done` with the RAG document and the report fades in, while the blind
+   LLM judge keeps deliberating in the background, grading both drafts
+   against the RAG run's retrieved chunks as ground truth. The verdict
+   arrives as a final `comparison` event that refreshes the A/B tab
+   (which says "Judge still deciding…" until then). The frontend paces
+   the progress bar smoothly (SSE events set the stage floor; a ticker
+   eases toward each stage's ceiling, and the two LLM-call stages
+   dominate real wall-clock). If generation fails, an `error` event
+   surfaces the message and the previously stored report stays on screen.
 
 ## The A/B test
 
@@ -128,10 +154,11 @@ to answer: without it the model can only produce plausible generalities; with
 it, it cites real threads with real scores. The A/B tab shows it four ways:
 side-by-side documents with grounded claims highlighted and hedged ones
 dashed, a claim-composition bar per document, a blind 1-5 rubric scored by an
-LLM judge, and paired run metrics (cost, latency, tokens, verifiable
-citations) that end in an honest pros-and-cons verdict. RAG costs more and
-runs slower, and it is the only version that says anything true about the
-week.
+LLM judge that grades both documents against the RAG run's retrieved source
+material (so made-up specifics count against a document, not for it), and
+paired run metrics (cost, latency, tokens, verifiable citations) that end in
+an honest pros-and-cons verdict. RAG costs more and runs slower, and it is
+the only version that says anything true about the week.
 
 ## The crawler
 
@@ -174,6 +201,17 @@ Measured on a 200-post / ~640-chunk synthetic corpus (no API keys needed):
 Ported-code review: BM25 precomputes per-document token counters at index time
 (the original re-tokenized every doc on every query); vector upserts run in a
 single transaction; KNN uses sqlite-vec's native `MATCH ... k = ?` path.
+
+## Development
+
+The served frontend is a pre-built SPA (`frontend/dist/`, committed on
+purpose so evaluators skip Node). To hack on it:
+
+```bash
+cd backend && .venv/bin/uvicorn app.main:app --reload   # API on :8000
+cd frontend && npm install && npm run dev               # Vite dev server, proxies /api to :8000
+cd frontend && npm run build                            # refresh frontend/dist before committing
+```
 
 ## Tests
 
