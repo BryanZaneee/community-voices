@@ -78,7 +78,7 @@ Respond with a single JSON object with these fields:
 - lede: 2-3 sentence overview paragraph
 - topics: 3-5 themes the community discussed. Each has: name, summary
   (3-4 concrete sentences), detail (a deeper 4-6 sentence dive for readers
-  who expand the topic — more threads, reactions, and specifics not already
+  who expand the topic: more threads, reactions, and specifics not already
   in the summary), share_pct (your estimate of the theme's integer
   percentage share of the week's discussion; all topics together at most 100),
   threads (estimated thread count, or null if you cannot estimate)
@@ -87,9 +87,11 @@ Respond with a single JSON object with these fields:
   (integer 0-100), rationale (one sentence of reasoning based on observed
   momentum), signals (2-3 short strings naming the momentum you observed)
 
-Write in an engaging, concrete style. Output JSON only."""
+Write in an engaging, concrete style. Never use em dashes or en dashes
+anywhere in your prose; use commas, colons, periods, or parentheses instead.
+Output JSON only."""
 
-RAG_INSTRUCTIONS = """Ground every claim in the context below — cite post titles
+RAG_INSTRUCTIONS = """Ground every claim in the context below; cite post titles
 in *italics* when referencing them. Do not invent posts or events. Base your
 predictions on the momentum you observe in the context.
 
@@ -100,13 +102,13 @@ predictions on the momentum you observe in the context.
 BASELINE_INSTRUCTIONS = """You have NO access to this week's actual discussions.
 Using only your general knowledge of this community and gaming at large, write
 your best guess at what was discussed and what comes next. Set share_pct and
-threads to null — you cannot measure them. Do not invent specific post titles
+threads to null; you cannot measure them. Do not invent specific post titles
 or exact numbers; be honest, generalities are acceptable."""
 
 def build_markdown(community: str, week_range: str, report: dict) -> str:
     """Render the structured report as the exported markdown document.
     Tests pin the "# Community Voices" first line."""
-    lines = [f"# Community Voices — {community} — Week of {week_range}", ""]
+    lines = [f"# Community Voices - {community} - Week of {week_range}", ""]
     lines += [f"**{report['headline']}**", "", report["lede"], ""]
     lines.append("## What the community talked about")
     for t in report["topics"]:
@@ -128,7 +130,7 @@ def build_markdown(community: str, week_range: str, report: dict) -> str:
     lines += [f"- {s}" for s in report["standouts"]]
     lines += ["", "## Predictions for next week"]
     for p in report["predictions"]:
-        lines += ["", f"### {p['title']} — {p['confidence']}% confidence", ""]
+        lines += ["", f"### {p['title']} ({p['confidence']}% confidence)", ""]
         lines.append(p["rationale"])
         lines += [f"- {s}" for s in p["signals"]]
     return "\n".join(lines) + "\n"
@@ -221,7 +223,7 @@ def generate_document(
         if not chunks:
             raise ValueError(
                 f"no chunks retrieved for week {week_start} "
-                f"(retrieval_mode={meta['mode']}) — is the week ingested?"
+                f"(retrieval_mode={meta['mode']}); is the week ingested?"
             )
         emit(
             "retrieve",
