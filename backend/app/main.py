@@ -446,9 +446,10 @@ class SwitchSourceBody(BaseModel):
 
 @app.post("/api/ingest/source")
 def ingest_source(body: SwitchSourceBody) -> dict:
-    """Switch the active community/site: wipes the dataset (posts/chunks
-    carry no per-row source tag — see db.reset_dataset) and does a fresh
-    month-window ingest for the chosen source."""
+    """Switch the active community/site: does a fresh month-window ingest
+    for the chosen source, wiping the old dataset (posts/chunks carry no
+    per-row source tag — see db.reset_dataset) only after the new crawl
+    succeeds, so a failed crawl leaves the current dataset intact."""
     if not os.environ.get("VOYAGE_API_KEY"):
         raise HTTPException(400, "Switching sources requires VOYAGE_API_KEY in .env")
     src = next((s for s in config.SOURCES if s["key"] == body.source_key), None)
@@ -456,11 +457,10 @@ def ingest_source(body: SwitchSourceBody) -> dict:
         raise HTTPException(400, f"unknown source: {body.source_key}")
     with write_lock:
         conn = state["conn"]
-        db.reset_dataset(conn)
         provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
         report = ingest.run_ingest(
             conn, state["vector_index"], provider, src.get("community", ""),
-            window="month", source=src["kind"],
+            window="month", source=src["kind"], reset=True,
         )
         state["retriever"] = _build_retriever(conn, state["vector_index"])
         return {"report": report, "weeks": db.week_windows(conn)}

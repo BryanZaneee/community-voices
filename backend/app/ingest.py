@@ -341,6 +341,7 @@ def run_ingest(
     window: str = "month",
     pages: int = LISTING_PAGES,
     source: str = "lemmy",
+    reset: bool = False,
 ) -> dict:
     session = requests.Session()
     session.headers["User-Agent"] = config.USER_AGENT
@@ -364,6 +365,13 @@ def run_ingest(
         )
         comments_by_id = dict(fetched)
     fetch_s = time.perf_counter() - t0
+
+    # reset=True wipes the previous dataset only after the crawl succeeded,
+    # so a network failure (or an empty listing) can't leave the DB empty.
+    if reset:
+        if not posts:
+            raise RuntimeError(f"crawl returned no posts for {display_name}")
+        db.reset_dataset(conn)
 
     t0 = time.perf_counter()
     report = ingest_posts(

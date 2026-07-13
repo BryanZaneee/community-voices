@@ -144,6 +144,31 @@ def test_run_ingest_persists_report_meta(tmp_path, monkeypatch):
     assert db.get_meta(conn, "source") == "lemmy"
 
 
+def test_run_ingest_reset_survives_failed_crawl(tmp_path, monkeypatch):
+    """reset=True must wipe only after the crawl succeeds: a network error
+    or an empty listing leaves the previous dataset untouched."""
+    import pytest
+
+    conn = db.connect(tmp_path / "w.sqlite")
+    vec = VectorIndex(tmp_path / "w.sqlite", dim=DIM)
+    posts, comments = make_posts(n=4)
+    ingest.ingest_posts(conn, "c/old", posts, comments, FakeEmbeddingProvider(dim=DIM), vec)
+    n_before = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
+
+    def boom(s, c, w, p):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(ingest, "fetch_top_posts_lemmy", boom)
+    with pytest.raises(RuntimeError):
+        ingest.run_ingest(conn, vec, FakeEmbeddingProvider(dim=DIM), "new", reset=True)
+    assert conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0] == n_before
+
+    monkeypatch.setattr(ingest, "fetch_top_posts_lemmy", lambda s, c, w, p: [])
+    with pytest.raises(RuntimeError, match="no posts"):
+        ingest.run_ingest(conn, vec, FakeEmbeddingProvider(dim=DIM), "new", reset=True)
+    assert conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0] == n_before
+
+
 # ------------------------------------------------------------ hackernews ----
 
 
