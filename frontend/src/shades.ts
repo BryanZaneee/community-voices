@@ -14,7 +14,7 @@ export const SHADES: Record<string, Shade> = {
   embed:    { speed: 1.6,  distortion: 0.85, swirl: 1.0,  colors: ['#EAF2EA', '#9CC9A8', '#2E7D5B', '#153B2A', '#F4F4EF'] },
   retrieve: { speed: 0.85, distortion: 0.3,  swirl: 0.55, colors: ['#EEF0F2', '#B9C2CC', '#5B6770', '#2A3138', '#DDE3BC'] },
   write:    { speed: 0.5,  distortion: 0.6,  swirl: 0.25, colors: ['#FAFAF7', '#E7EBD2', '#A9BA4A', '#6A791D'] },
-  done:     { speed: 0.22, distortion: 0.5,  swirl: 0.3,  colors: ['#FAFAF7', '#EDEFDF', '#C9D18C', '#8E9F33'] },
+  done:     { speed: 0.22, distortion: 0.5,  swirl: 0.3,  colors: ['#FAFAF7', '#EAF2EA', '#9CC9A8', '#2E7D5B'] },
 }
 
 function hexToRgb(h: string): [number, number, number] {

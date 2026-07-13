@@ -7,9 +7,9 @@
   --bg: #FAFAF7;
   --surface: #FFFFFF;
   --ink: #16180F;
-  --accent: #7A8B22;
-  --accent-hover: #6A791D;
-  --accent-deep: #5A661A;
+  --accent: #2E7D5B;
+  --accent-hover: #266A4D;
+  --accent-deep: #1E5940;
   --border: #E7E7DD;
   --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display',
     'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
@@ -34,7 +34,7 @@ a {
   color: var(--accent-deep);
 }
 a:hover {
-  color: #3A4214;
+  color: #153B2A;
 }
 
 ::selection {
@@ -66,7 +66,7 @@ button {
   filter: brightness(1.06);
 }
 .link-btn:hover {
-  color: #3A4214 !important;
+  color: #153B2A !important;
 }
 
 

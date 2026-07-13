@@ -9,10 +9,10 @@ import type {
 
 // Topic/cluster palette from the design tokens (neutral gray = long tail).
 export const CLUSTER_COLORS = [
-  '#7A8B22', '#5B6770', '#B08C1E', '#2E7D5B', '#A65A2E', '#9A9A90',
+  '#2E7D5B', '#5B6770', '#B08C1E', '#7A8B22', '#A65A2E', '#9A9A90',
 ]
 
-export const ACCENT = '#7A8B22'
+export const ACCENT = '#2E7D5B'
 
 export const fmt = (n: number | null | undefined): string =>
   n == null ? '—' : n.toLocaleString('en-US')

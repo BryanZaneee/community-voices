@@ -59,7 +59,7 @@ export function baseStages(status: Status | null, week: string): StageUi[] {
 }
 
 // cumulative progress ceiling per stage (write dominates real wall-clock)
-const CEILS = [0.08, 0.16, 0.26, 0.55, 0.98]
+export const CEILS = [0.08, 0.16, 0.26, 0.55, 0.98]
 const MIN_STAGE_MS = 650
 
 export function useGeneration(

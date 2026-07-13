@@ -11,7 +11,7 @@ import {
 } from '../viewmodel'
 import { card, DISPLAY, kicker, MONO, whiteBtn } from '../ui'
 
-const OLIVE = '#7A8B22'
+const TEAL = '#2E7D5B'
 const GRAY = '#C9CABB'
 const HEDGE = '#B9B4A5'
 
@@ -43,7 +43,7 @@ function Paragraphs({ blocks, side }: { blocks: AbBlock[]; side: 'rag' | 'base' 
                   style={{
                     background: s.cite ? '#EEF1DA' : 'transparent',
                     borderBottom: s.cite
-                      ? `2px solid ${OLIVE}`
+                      ? `2px solid ${TEAL}`
                       : s.vague
                         ? `2px dashed ${HEDGE}`
                         : '2px solid transparent',
@@ -54,7 +54,7 @@ function Paragraphs({ blocks, side }: { blocks: AbBlock[]; side: 'rag' | 'base' 
                   {s.text}
                 </span>
                 {s.cite != null && (
-                  <sup style={{ fontFamily: MONO, fontSize: 8.5, color: '#5A661A', marginLeft: 1 }}>
+                  <sup style={{ fontFamily: MONO, fontSize: 8.5, color: '#1E5940', marginLeft: 1 }}>
                     {s.cite}
                   </sup>
                 )}
@@ -80,7 +80,7 @@ function CompositionBar({ label, stats }: { label: string; stats: ClaimStats }) 
         </span>
       </div>
       <div style={{ display: 'flex', height: 14, borderRadius: 4, overflow: 'hidden', background: '#F0F0E7' }}>
-        <div style={{ width: `${pct(stats.groundedChars)}%`, background: OLIVE }} />
+        <div style={{ width: `${pct(stats.groundedChars)}%`, background: TEAL }} />
         <div style={{ width: `${pct(stats.neutralChars)}%`, background: '#E3E4D8' }} />
         <div style={{ width: `${pct(stats.hedgedChars)}%`, background: HEDGE }} />
       </div>
@@ -155,7 +155,7 @@ export function AbTab({
           <span
             style={{
               width: 12, height: 12, borderRadius: 3, background: '#EEF1DA',
-              borderBottom: `2px solid ${OLIVE}`,
+              borderBottom: `2px solid ${TEAL}`,
             }}
           />
           grounded claim (cites a post title)
@@ -189,7 +189,7 @@ export function AbTab({
       >
         <div
           style={{
-            border: '1px solid #DEE3B9', borderTop: `3px solid ${OLIVE}`,
+            border: '1px solid #DEE3B9', borderTop: `3px solid ${TEAL}`,
             borderRadius: 14, background: '#FFFFFF', padding: '20px 22px',
           }}
         >
@@ -273,9 +273,9 @@ export function AbTab({
                       <span style={{ fontSize: 10, color: '#A2A494', textAlign: 'right' }}>{meta.note}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                      <span style={{ fontFamily: MONO, fontSize: 9, width: 28, color: '#5A661A' }}>RAG</span>
+                      <span style={{ fontFamily: MONO, fontSize: 9, width: 28, color: '#1E5940' }}>RAG</span>
                       <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#F0F0E7' }}>
-                        <div style={{ height: '100%', width: `${(ragScore / 5) * 100}%`, background: OLIVE, borderRadius: 3 }} />
+                        <div style={{ height: '100%', width: `${(ragScore / 5) * 100}%`, background: TEAL, borderRadius: 3 }} />
                       </div>
                       <span style={{ fontFamily: MONO, fontSize: 10, width: 14, textAlign: 'right' }}>{ragScore}</span>
                     </div>
@@ -315,9 +315,9 @@ export function AbTab({
                   </span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                  <span style={{ fontFamily: MONO, fontSize: 9, width: 28, color: '#5A661A' }}>RAG</span>
+                  <span style={{ fontFamily: MONO, fontSize: 9, width: 28, color: '#1E5940' }}>RAG</span>
                   <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#F0F0E7' }}>
-                    <div style={{ height: '100%', width: `${(m.ragN / maxRow(m)) * 100}%`, background: OLIVE, borderRadius: 3 }} />
+                    <div style={{ height: '100%', width: `${(m.ragN / maxRow(m)) * 100}%`, background: TEAL, borderRadius: 3 }} />
                   </div>
                   <span style={{ fontFamily: MONO, fontSize: 10, width: 52, textAlign: 'right' }}>{m.rag}</span>
                 </div>
@@ -342,7 +342,7 @@ export function AbTab({
           background: '#F6F8EA', padding: '18px 20px',
         }}
       >
-        <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.14em', color: '#5A661A', marginBottom: 12 }}>
+        <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.14em', color: '#1E5940', marginBottom: 12 }}>
           VERDICT — {judge?.winner === 'b' ? 'RAG' : judge?.winner === 'a' ? 'LLM ONLY' : 'TIE'}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, marginBottom: 14 }}>
@@ -353,7 +353,7 @@ export function AbTab({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               {pros.map((p) => (
                 <div key={p} style={{ display: 'flex', gap: 7, fontSize: 11.8, lineHeight: 1.5, color: '#33352B' }}>
-                  <span style={{ color: OLIVE, flex: 'none' }}>▸</span>
+                  <span style={{ color: TEAL, flex: 'none' }}>▸</span>
                   <span>{p}</span>
                 </div>
               ))}

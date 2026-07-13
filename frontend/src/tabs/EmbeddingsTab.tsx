@@ -332,7 +332,7 @@ export function EmbeddingsTab({
                       </span>
                       <span
                         style={{
-                          fontFamily: MONO, fontSize: 9, fontWeight: 600, color: '#5A661A',
+                          fontFamily: MONO, fontSize: 9, fontWeight: 600, color: '#1E5940',
                           background: '#EEF1DA', borderRadius: 99, padding: '2px 7px', flex: 'none',
                         }}
                       >

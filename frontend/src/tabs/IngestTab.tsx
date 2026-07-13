@@ -119,7 +119,7 @@ export function IngestTab({
               </div>
               <div
                 style={{
-                  fontFamily: MONO, fontSize: 9, color: '#5A661A', background: '#F3F5E3',
+                  fontFamily: MONO, fontSize: 9, color: '#1E5940', background: '#EAF2EA',
                   borderRadius: 6, padding: '3.5px 7px', display: 'inline-block',
                 }}
               >

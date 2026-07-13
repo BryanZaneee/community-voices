@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type Comparison, type Doc, type Embeddings, type Stats, type Status } from './api'
-import { useGeneration, type RunState, type StageUi } from './runstate'
+import { CEILS, STAGE_KEYS, useGeneration, type RunState, type StageUi } from './runstate'
 import { useMeshShader } from './useMeshShader'
 import { pickDoc, weekRange } from './viewmodel'
 import { DISPLAY, MONO, whiteBtn } from './ui'
@@ -72,6 +72,17 @@ export default function App() {
   }, [week])
 
   const running = gen.run.phase === 'run'
+
+  // Keep the takeover mounted ~900ms into 'done' so the write→done shader
+  // crossfade is visible during the handoff to the report.
+  const [overlay, setOverlay] = useState(false)
+  useEffect(() => {
+    if (gen.run.phase === 'run') setOverlay(true)
+    else if (gen.run.phase === 'done' && overlay) {
+      const id = setTimeout(() => setOverlay(false), 950)
+      return () => clearTimeout(id)
+    } else setOverlay(false)
+  }, [gen.run.phase, overlay])
   const model = status?.models_available[0] ?? ''
   const canGenerate = !!model && !running
 
@@ -254,7 +265,7 @@ export default function App() {
           </div>
         </div>
 
-        {running && <Takeover run={gen.run} stages={gen.stages} shadeKey={gen.shadeKey} />}
+        {overlay && <Takeover run={gen.run} stages={gen.stages} shadeKey={gen.shadeKey} />}
       </main>
     </div>
   )
@@ -263,11 +274,28 @@ export default function App() {
 /** Fullscreen generating takeover (animationStyle = "fullscreen takeover"):
  * covers the main area with the stage shader while the pipeline runs. */
 function Takeover({ run, stages, shadeKey }: { run: RunState; stages: StageUi[]; shadeKey: string }) {
-  const setShaderEl = useMeshShader(shadeKey)
+  // Blend continuously from this stage's palette toward the next one's as
+  // stage-local progress advances (prog is cumulative, hence the CEILS math).
+  const floor = run.stage === 0 ? 0 : CEILS[run.stage - 1]
+  const ceil = CEILS[run.stage] ?? 1
+  const t = (run.prog - floor) / Math.max(0.001, ceil - floor)
+  const next = STAGE_KEYS[run.stage + 1] ?? 'done'
+  const setShaderEl = useMeshShader(
+    shadeKey,
+    false,
+    run.phase === 'run' ? { toKey: next, t } : undefined,
+  )
+  const done = run.phase === 'done'
   const cur = stages[run.stage]
   const pct = Math.round(run.prog * 100)
   return (
-    <div style={{ position: 'absolute', inset: 0, zIndex: 40, animation: 'ccFade .35s ease' }}>
+    <div
+      style={{
+        position: 'absolute', inset: 0, zIndex: 40, animation: 'ccFade .35s ease',
+        opacity: done ? 0 : 1, transition: 'opacity .9s ease',
+        pointerEvents: done ? 'none' : undefined,
+      }}
+    >
       <div ref={setShaderEl} style={{ position: 'absolute', inset: 0 }} />
       <div
         style={{

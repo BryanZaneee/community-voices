@@ -40,7 +40,7 @@ export function ReportTab({
             background: '#F3F5E3', padding: 44, marginBottom: 24,
           }}
         >
-          <div style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: '.16em', color: '#5A661A' }}>
+          <div style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: '.16em', color: '#1E5940' }}>
             WEEK OF {range.toUpperCase()}
           </div>
           <div
@@ -63,7 +63,7 @@ export function ReportTab({
             title={!canGenerate ? 'Add an API key in .env to generate' : undefined}
             style={{
               padding: '13px 24px', borderRadius: 11,
-              border: `1px solid ${canGenerate ? '#5A661A' : '#E1E3D2'}`,
+              border: `1px solid ${canGenerate ? '#1E5940' : '#E1E3D2'}`,
               background: canGenerate ? ACCENT : '#EDEFDF',
               color: canGenerate ? '#FFFFFF' : '#6B6D5F',
               fontFamily: DISPLAY, fontWeight: 600, fontSize: 14.5,
@@ -115,7 +115,7 @@ export function ReportTab({
               title={!canGenerate ? 'Add an API key in .env to regenerate' : undefined}
               style={{
                 border: 'none', background: 'none', fontFamily: MONO, fontSize: 11,
-                fontWeight: 600, color: canGenerate ? '#5A661A' : '#A2A494',
+                fontWeight: 600, color: canGenerate ? '#1E5940' : '#A2A494',
                 cursor: canGenerate ? 'pointer' : 'default',
                 textDecoration: 'underline', padding: 4,
               }}
@@ -211,7 +211,7 @@ export function ReportTab({
                           style={{
                             border: 'none', background: 'none', padding: 0, marginTop: 8,
                             fontFamily: MONO, fontSize: 10, fontWeight: 600,
-                            color: '#5A661A', cursor: 'pointer', textDecoration: 'underline',
+                            color: '#1E5940', cursor: 'pointer', textDecoration: 'underline',
                           }}
                         >
                           {open ? 'Show less ▴' : 'Read more ▾'}
@@ -243,7 +243,7 @@ export function ReportTab({
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
-                  <div style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: '.16em', color: '#5A661A' }}>
+                  <div style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: '.16em', color: '#1E5940' }}>
                     NEXT WEEK PREDICTION
                   </div>
                   <div style={{ fontFamily: MONO, fontSize: 10, color: '#8A8C7C' }}>

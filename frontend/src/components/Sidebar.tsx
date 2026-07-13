@@ -86,7 +86,7 @@ export function Sidebar({
                 display: 'grid', placeItems: 'center', flex: 'none',
               }}
             >
-              <div style={{ width: 11, height: 11, borderRadius: '50%', background: '#A9BA4A' }} />
+              <div style={{ width: 11, height: 11, borderRadius: '50%', background: '#9CC9A8' }} />
             </div>
             <div>
               <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 15, letterSpacing: '-.01em', lineHeight: 1.1 }}>
@@ -124,7 +124,7 @@ export function Sidebar({
               style={{
                 width: 34, height: 34, borderRadius: '50%', background: '#EEF1DA',
                 border: '1px solid #DEE3B9', display: 'grid', placeItems: 'center',
-                fontFamily: DISPLAY, fontWeight: 700, fontSize: 16, color: '#5A661A', flex: 'none',
+                fontFamily: DISPLAY, fontWeight: 700, fontSize: 16, color: '#1E5940', flex: 'none',
               }}
             >
               {ident.initial}
@@ -143,7 +143,7 @@ export function Sidebar({
           <nav style={{ padding: '0 12px', display: 'flex', flexDirection: 'column', gap: 2 }}>
             {NAVDEF.map((n) => {
               const act = tab === n.key
-              const shapeCol = act ? '#5A661A' : '#A2A494'
+              const shapeCol = act ? '#1E5940' : '#A2A494'
               return (
                 <button
                   key={n.key}
@@ -220,7 +220,7 @@ export function Sidebar({
               title={models.length === 0 ? 'Add an API key in .env to generate' : undefined}
               style={{
                 width: '100%', padding: '12px 14px', borderRadius: 10,
-                border: `1px solid ${running || !canGenerate ? '#E1E3D2' : '#5A661A'}`,
+                border: `1px solid ${running || !canGenerate ? '#E1E3D2' : '#1E5940'}`,
                 background: running || !canGenerate ? '#EDEFDF' : ACCENT,
                 color: running || !canGenerate ? '#6B6D5F' : '#FFFFFF',
                 fontFamily: DISPLAY, fontWeight: 600, fontSize: 13.5,

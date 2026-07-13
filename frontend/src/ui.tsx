@@ -40,7 +40,7 @@ export function RichText({ text }: { text: string }) {
             key={i}
             style={{
               background: '#EEF1DA',
-              borderBottom: '2px solid #7A8B22',
+              borderBottom: '2px solid #2E7D5B',
               padding: '0 2px',
               borderRadius: 2,
             }}
