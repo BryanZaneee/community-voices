@@ -39,7 +39,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
 The repo ships with a pre-ingested corpus (`data/community.sqlite`): a month
-of c/games activity as 218 posts, 506 chunks with real voyage-3-large
+of c/games activity as 200 posts, 453 chunks with real voyage-3-large
 embeddings, and 5 week windows. Nothing is pre-generated. Every document and
 A/B comparison you see is produced live when you click the button, so you
 watch the RAG pipeline do its work rather than browse canned output.
@@ -62,9 +62,10 @@ ingested corpus, and the ingestion funnel, and the full test suite runs.
 - **Weekly report**: pick a week, click **Generate report**, and watch the
   eight-stage pipeline run live. Download the finished document as `.md` or
   print to PDF.
-- **A/B (RAG vs LLM)**: every generation also writes the no-retrieval
-  baseline and judges both blind; this tab shows the side-by-side documents,
-  scorecard, and verdict.
+- **A/B (RAG vs LLM)**: side-by-side documents, scorecard, and verdict (see
+  **The A/B test** below). **Generate report** runs the full comparison
+  automatically; the A/B tab also has a standalone **Run A/B comparison**
+  button (`POST /api/compare`).
 - **Embeddings**: the 2-D map of every chunk. Toggle topic clusters vs
   retrieval heat, and click a cluster to inspect its most-retrieved chunks.
 - **Ingestion**: the crawl funnel and latest-run numbers. **Run now** pulls
@@ -80,11 +81,10 @@ ingested corpus, and the ingestion funnel, and the full test suite runs.
 Lemmy / Hacker News (posts + comments)  FastAPI                   React SPA
         │  crawler (open API,           │                          │
         │  parallel fetches)            │  /api/generate(/stream)  │  Report tab
-        │                               │  /api/compare            │  Embeddings tab
-        ▼                               │                          │  A/B tab
-  markdown per post ── chunker ──► sqlite-vec vector table         │  Ingestion tab
-                          │        + BM25 (in-memory)              │  Help tab
-                          ▼             │                          │
+        ▼                               │  /api/compare            │  A/B tab
+  markdown per post ── chunker ──► sqlite-vec vector table         │  Embeddings tab
+                          │        + BM25 (in-memory)              │  Ingestion tab
+                          ▼             │                          │  Help tab
                     Voyage embeddings   └── retrieval stats,       │
                                             UMAP/PCA + clusters ───┘
 ```
@@ -112,23 +112,23 @@ Lemmy / Hacker News (posts + comments)  FastAPI                   React SPA
   installed (the committed DB ships UMAP coords) and falls back to plain PCA
   otherwise; k-means clusters with TF-IDF term labels color the map.
   Recompute anytime without re-embedding: `.venv/bin/python -m app.rag.pca`.
-- **Judging**: every comparison is scored blind on specificity, evidence,
-  temporal grounding, and usefulness via DeepSeek JSON mode. The judge is
-  also handed the RAG run's actual retrieved chunks as `<source_material>`
-  ground truth: claims the week's real posts don't support are scored as
-  fabrications, so confident invention can't win on specificity. It is never
-  told which document had access to that material.
+- **Judging**: blind LLM scoring on every comparison. See **The A/B test**
+  below for the rubric and how retrieved chunks are used as ground truth.
+
+Also included: hybrid RRF retrieval, blind LLM-judge scoring, and a live-scrape
+button over five week windows of ingested history.
 
 ## Report Flow
 
-What happens between clicking **Generate** and reading the report:
+What happens between clicking **Generate** and reading the report. The eight
+stages are: crawl, reduce, embed, retrieve, write, predict, ab, evaluate.
 
 1. **Click**: the Report tab kicks off the fullscreen generation
    animation and opens a Server-Sent Events connection to
    `GET /api/generate/stream` with the selected week and model.
-2. **Fresh data first**: with a Voyage key, the backend runs a live
-   trailing-7-day pull of the current source before anything else, so
-   the crawl, reduce, and embed stages report that pull's real numbers
+2. **Fresh data first** (crawl / reduce / embed): with a Voyage key, the
+   backend runs a live trailing-7-day pull of the current source before
+   anything else, so those three stages report that pull's real numbers
    and the model writes from up-to-date data (a failed pull falls back
    to the stored corpus and says so). The pull is skipped when the
    corpus was ingested within the last 12 hours, so back-to-back
@@ -151,19 +151,18 @@ What happens between clicking **Generate** and reading the report:
    the queries, retrieved chunk ids, retrieval mode, latency, and token
    counts. If the model ignored the schema, its raw text is kept and
    rendered as plain markdown.
-6. **Predict / A/B**: a `predict` stage reports the forecasts parsed from
-   the stored report, then the same model writes the no-retrieval baseline
-   document (`ab` stage) for the comparison.
-7. **Done, then judged**: as soon as both drafts exist the stream emits
-   `done` with the RAG document and the report fades in, while the blind
-   LLM judge keeps deliberating in the background, grading both drafts
-   against the RAG run's retrieved chunks as ground truth. The verdict
-   arrives as a final `comparison` event that refreshes the A/B tab
-   (which says "Judge still deciding…" until then). The frontend paces
-   the progress bar smoothly (SSE events set the stage floor; a ticker
-   eases toward each stage's ceiling, and the two LLM-call stages
-   dominate real wall-clock). If generation fails, an `error` event
-   surfaces the message and the previously stored report stays on screen.
+6. **Predict**: forecasts parsed from the stored report.
+7. **A/B**: the same model writes the no-retrieval baseline for the
+   comparison.
+8. **Evaluate / done**: as soon as both drafts exist the stream emits
+   `done` with the RAG document and the report fades in. The blind judge
+   keeps scoring in the background; the verdict arrives as a final
+   `comparison` event (see **The A/B test** for rubric details). The
+   frontend paces the progress bar smoothly (SSE events set the stage
+   floor; a ticker eases toward each stage's ceiling, and the two
+   LLM-call stages dominate real wall-clock). If generation fails, an
+   `error` event surfaces the message and the previously stored report
+   stays on screen.
 
 ## The A/B test
 
@@ -178,6 +177,9 @@ material (so made-up specifics count against a document, not for it), and
 paired run metrics (cost, latency, tokens, verifiable citations) that end in
 an honest pros-and-cons verdict. RAG costs more and runs slower, and it is
 the only version that says anything true about the week.
+
+Use **Run A/B comparison** on the A/B tab to rerun the comparison for the
+selected week without regenerating the report.
 
 ## The crawler
 
@@ -201,12 +203,12 @@ search API instead; the in-app source switcher drives the same registry via
 Handling "overly large amounts of data": ~200-post cap per month, comment
 fetches only where there's real discussion, 12 comments/post, and per-field
 truncation. A month lands in the mid-hundreds of chunks (this repo's committed
-month: 506). Re-runs are idempotent: content-hashed chunk IDs mean overlapping
+month: 453). Re-runs are idempotent: content-hashed chunk IDs mean overlapping
 windows only embed what's new or edited, and superseded chunks of re-crawled
-posts are pruned rather than left stale. The Ingestion tab's **"Run now"** button runs the same
-pipeline for the trailing 7 days (~15 s) and the new window appears in the
-week selector. Measured on the real month ingest: 200 posts + 119 comment
-fetches in 6.2 s, chunk + embed + index in 12.4 s.
+posts are pruned rather than left stale. The Ingestion tab's **"Run now"**
+button runs the same pipeline for the trailing 7 days and the new window
+appears in the week selector. Measured on the real month ingest: 200 posts +
+115 comment fetches in 6.1 s, chunk + embed + index in 18.9 s.
 
 Because re-runs are idempotent, unattended weekly ingestion is one cron line:
 
@@ -216,14 +218,9 @@ Because re-runs are idempotent, unattended weekly ingestion is one cron line:
 
 ## Performance notes
 
-Measured on a 200-post / ~640-chunk synthetic corpus (no API keys needed):
-
-- 640 chunks: build + hash-embed + index in ~150 ms
-- hybrid search: **0.8 ms** (BM25 0.5 ms, vector KNN 0.2 ms)
-
-Ported-code review: BM25 precomputes per-document token counters at index time
-(the original re-tokenized every doc on every query); vector upserts run in a
-single transaction; KNN uses sqlite-vec's native `MATCH ... k = ?` path.
+On the committed 453-chunk corpus, hybrid retrieval (BM25 plus sqlite-vec
+KNN, RRF-fused) runs in sub-millisecond time. Ingest indexing is dominated by
+the Voyage embedding API rather than SQLite.
 
 ## Development
 
@@ -265,24 +262,6 @@ Four layers, run in CI on every push:
 - **Regression**: pins bugs fixed during development (week-boundary
   alignment) plus a golden chunk-ID snapshot protecting the committed vector
   store.
-
-## Features
-
-| Feature | Where |
-|---|---|
-| Active community sources (c/games default; c/technology, c/asklemmy, Hacker News switchable) | `app/ingest.py` source registry + sidebar switcher |
-| Weekly Community Voices Document (past week + predictions) | Report tab; `.md` download + print-to-PDF |
-| RAG-empowered generation | week-scoped facet retrieval → context-grounded prompt, live SSE pipeline |
-| Vectorized table in a relational DB | sqlite-vec `vec0` table inside SQLite |
-| Flattened embedding visualization | Embeddings tab: UMAP scatter, topic clusters, retrieval-heat mode |
-| Stats on most-retrieved embeddings | retrieval counters, most-retrieved table, cluster inspector, dot sizing |
-| Automated vector-store fill | Ingestion tab + `app/ingest.py` crawler + live-pull endpoint + weekly cron one-liner |
-| Crawler / agentic ingestion | open Lemmy API crawler, parallel fetches |
-| Overly-large-data handling | caps, thresholds, truncation (see The crawler; funnel on the Ingestion tab) |
-| A/B testing, with and without RAG | A/B tab: citation highlighting, judge scorecard, run metrics |
-
-Also included: a month of ingested history across five week windows, hybrid
-RRF retrieval, blind LLM-judge scoring, and a live-scrape button.
 
 ## License
 
