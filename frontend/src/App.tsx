@@ -35,10 +35,11 @@ export default function App() {
   const [selectedModel, setSelectedModel] = useState('')
   const [sourceBusy, setSourceBusy] = useState(false)
   const [sourceError, setSourceError] = useState<string | null>(null)
+  const [bootError, setBootError] = useState<string | null>(null)
 
   const refreshRetrievalViews = useCallback(() => {
-    api.stats().then(setStats).catch(() => {})
-    api.embeddings().then(setEmb).catch(() => {})
+    api.stats().then(setStats).catch((e: Error) => setBootError(e.message))
+    api.embeddings().then(setEmb).catch((e: Error) => setBootError(e.message))
   }, [])
 
   // true from regenerate-start until the blind judge's verdict arrives
@@ -61,7 +62,8 @@ export default function App() {
     api.status().then((s) => {
       setStatus(s)
       setWeek(s.weeks[0]?.week_start ?? '')
-    }).catch(() => {})
+    }).catch((e: Error) => setBootError(e.message))
+    // 404s by design on a fresh DB ("no comparisons yet") — stays silent
     api.latestComparison('rag_vs_baseline').then(setComp).catch(() => {})
     refreshRetrievalViews()
   }, [refreshRetrievalViews])
@@ -86,7 +88,7 @@ export default function App() {
       setDoc(d)
       if (d) showDone()
       else showIdle()
-    }).catch(() => {})
+    }).catch((e: Error) => setBootError(e.message))
     return () => {
       cancelled = true
     }
@@ -199,6 +201,30 @@ export default function App() {
         className="print-scroll"
         style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' }}
       >
+        {bootError && (
+          <div
+            role="alert"
+            data-noprint="true"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: 12, padding: '8px 28px', background: '#FBEFE9',
+              borderBottom: '1px solid #E4C4B2', fontFamily: MONO,
+              fontSize: 11, color: '#A6522E', flex: 'none',
+            }}
+          >
+            <span>Backend error: {bootError}</span>
+            <button
+              aria-label="Dismiss"
+              onClick={() => setBootError(null)}
+              style={{
+                background: 'none', border: 'none', color: '#A6522E',
+                cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0,
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
         <header
           data-noprint="true"
           style={{

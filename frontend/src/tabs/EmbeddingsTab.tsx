@@ -125,7 +125,14 @@ export function EmbeddingsTab({
     draw()
   }
 
-  if (!emb || !model || !stats) {
+  if (!emb || !stats) {
+    return (
+      <div style={{ fontFamily: MONO, fontSize: 11, color: '#8A8C7C' }}>
+        Loading embeddings…
+      </div>
+    )
+  }
+  if (!model) {
     return (
       <div style={{ fontFamily: MONO, fontSize: 11, color: '#8A8C7C' }}>
         No embeddings yet. Run an ingest first.
