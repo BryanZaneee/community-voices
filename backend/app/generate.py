@@ -237,7 +237,19 @@ def generate_document(
         user = BASELINE_INSTRUCTIONS
 
     emit("write", {"status": "start", "model_key": model_key})
-    result = llm.complete(model_key, system, user, json_schema=REPORT_SCHEMA)
+    report_json = None
+    for _attempt in range(2):
+        result = llm.complete(model_key, system, user, json_schema=REPORT_SCHEMA)
+        try:
+            report = json.loads(result.text)
+            content_md = build_markdown(community, week_range, report)
+            report_json = result.text
+            break
+        except (json.JSONDecodeError, KeyError, TypeError):
+            # DeepSeek's JSON mode occasionally emits unescaped quotes; one
+            # re-sample nearly always parses. Raw text is the last resort —
+            # the UI falls back to rendering content_md directly.
+            content_md = result.text
     emit(
         "write",
         {
@@ -246,16 +258,6 @@ def generate_document(
             "output_tokens": result.output_tokens,
         },
     )
-
-    report_json = None
-    try:
-        report = json.loads(result.text)
-        content_md = build_markdown(community, week_range, report)
-        report_json = result.text
-    except (json.JSONDecodeError, KeyError, TypeError):
-        # Model ignored the schema — keep its raw text; the UI falls back to
-        # rendering content_md directly.
-        content_md = result.text
 
     with conn:
         cur = conn.execute(
