@@ -137,7 +137,7 @@ def test_generate_stream_live_pull(client, monkeypatch):
         app_main, "VoyageEmbeddingProvider",
         lambda model: FakeEmbeddingProvider(dim=DIM),
     )
-    _backdate_ingest(app_main)  # fixture ingested "today", which would skip
+    _backdate_ingest(app_main)  # fixture ingested just now, which would skip
     pulls = []
 
     def fake_run_ingest(conn, vec, provider, community, window, pages, source):
@@ -185,8 +185,8 @@ def test_generate_stream_live_pull_failure_degrades(client, monkeypatch):
 
 
 def test_generate_stream_skips_pull_when_fresh(client, monkeypatch):
-    """Already ingested today -> no re-crawl; cached stages replay. The
-    seeded fixture's ingested_at IS today, so no backdating here."""
+    """Ingested within the last 12 hours -> no re-crawl; cached stages
+    replay. The seeded fixture's ingested_at is now, so no backdating."""
     from app import main as app_main
 
     monkeypatch.setenv("VOYAGE_API_KEY", "test-key")

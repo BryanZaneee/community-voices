@@ -159,16 +159,17 @@ def _cached_stage_events(conn: sqlite3.Connection, week_start: str) -> list[str]
     ]
 
 
-def _pulled_today(conn: sqlite3.Connection) -> bool:
-    """True if the corpus was already ingested today (UTC) — fresh enough
-    that a pre-report live pull would just re-crawl the same posts."""
+PULL_MAX_AGE_HOURS = 12
+
+
+def _pulled_recently(conn: sqlite3.Connection) -> bool:
+    """True if the corpus was ingested within the last PULL_MAX_AGE_HOURS —
+    fresh enough that a pre-report live pull would re-crawl the same posts."""
     ts = db.get_meta(conn, "ingested_at")
     if not ts:
         return False
-    return (
-        datetime.fromisoformat(ts).date()
-        == datetime.now(timezone.utc).date()
-    )
+    age = datetime.now(timezone.utc) - datetime.fromisoformat(ts)
+    return age < timedelta(hours=PULL_MAX_AGE_HOURS)
 
 
 def _live_pull(conn: sqlite3.Connection, progress) -> None:
@@ -211,13 +212,13 @@ def generate_stream(
 
     With a Voyage key, a RAG run starts with a live trailing-7-day pull so
     the model writes from up-to-date data — skipped when the corpus was
-    already ingested today. Keyless runs use the stored corpus and replay
-    the ingest-time stage numbers."""
+    ingested within the last 12 hours. Keyless runs use the stored corpus
+    and replay the ingest-time stage numbers."""
     conn = state["conn"]
     live = (
         mode == "rag"
         and bool(os.environ.get("VOYAGE_API_KEY"))
-        and not _pulled_today(conn)
+        and not _pulled_recently(conn)
     )
     q: queue.Queue = queue.Queue()
 

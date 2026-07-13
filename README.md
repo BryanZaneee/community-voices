@@ -51,7 +51,7 @@ fill in:
 | Key | What it unlocks |
 |---|---|
 | `DEEPSEEK_API_KEY` | Generate weekly documents and run A/B comparisons (retrieval falls back to BM25 keyword search without a Voyage key) |
-| `VOYAGE_API_KEY` | Full hybrid retrieval (BM25 + vector, RRF-fused), a fresh trailing-week pull before generating (at most once a day), the "Run now" live pull, and switching ingest sources |
+| `VOYAGE_API_KEY` | Full hybrid retrieval (BM25 + vector, RRF-fused), a fresh trailing-week pull before generating (at most every 12 hours), the "Run now" live pull, and switching ingest sources |
 | `ANTHROPIC_API_KEY` (optional) | Adds Claude Opus 4.8 and Claude Sonnet 5 to the sidebar model picker alongside DeepSeek |
 
 Without keys the app still boots: you can browse the embedding map, the
@@ -131,7 +131,8 @@ What happens between clicking **Generate** and reading the report:
    the crawl, reduce, and embed stages report that pull's real numbers
    and the model writes from up-to-date data (a failed pull falls back
    to the stored corpus and says so). The pull is skipped when the
-   corpus was already ingested today — same-day regenerates reuse it.
+   corpus was ingested within the last 12 hours, so back-to-back
+   regenerates reuse it.
    Without a Voyage key those three stages instantly replay their real
    numbers from ingest time rather than pretending to redo the work.
 3. **Retrieve**: a worker thread runs retrieval. Six fixed facet queries
