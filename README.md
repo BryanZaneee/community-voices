@@ -69,7 +69,7 @@ Lemmy c/games (top posts + comments)   FastAPI                    React SPA
 - **Retrieval**: 6 canonical facet queries ("debates and controversies",
   "questions people are asking", …) run against the selected week's chunks.
   Hybrid mode fuses BM25 and vector KNN with Reciprocal Rank Fusion; every
-  retrieved chunk bumps a retrieval counter (the Stats tab leaderboard and the
+  retrieved chunk bumps a retrieval counter (the Embeddings tab leaderboard and the
   dot sizes on the embedding map).
 - **Generation**: DeepSeek V4; each generation records latency, token usage,
   and estimated cost. The model emits a structured JSON report
