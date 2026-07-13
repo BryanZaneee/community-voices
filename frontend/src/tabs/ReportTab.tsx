@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { Doc, Status, Week } from '../api'
-import type { RunState, StageUi } from '../runstate'
-import { useMeshShader } from '../useMeshShader'
+import type { RunState } from '../runstate'
 import { ACCENT, citationCount, CLUSTER_COLORS, fmt, fmtSecs, weekRange } from '../viewmodel'
 import { card, DISPLAY, kicker, MONO, pill, RichText } from '../ui'
 
@@ -11,8 +10,6 @@ export function ReportTab({
   week,
   doc,
   run,
-  stages,
-  shadeKey,
   canGenerate,
   onGenerate,
   onAb,
@@ -22,132 +19,78 @@ export function ReportTab({
   week: Week | null
   doc: Doc | null
   run: RunState
-  stages: StageUi[]
-  shadeKey: string
   canGenerate: boolean
   onGenerate: () => void
   onAb: () => void
   error: string | null
 }) {
-  const setShaderEl = useMeshShader(shadeKey)
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const range = week ? weekRange(week.week_start, week.week_end) : '—'
-  const cur = stages[run.stage]
   const report = doc?.report_json ?? null
-  const heroH = run.phase === 'idle' ? 330 : run.phase === 'run' ? 400 : 54
   const chunksUsed = doc?.retrieved_chunk_ids?.length ?? 0
-  const pct = Math.round(run.prog * 100)
 
   return (
     <div>
-      {/* hero: idle / running / done */}
-      <div
-        data-noprint="true"
-        style={{
-          position: 'relative', height: heroH, borderRadius: 16, overflow: 'hidden',
-          border: '1px solid #E1E3D2',
-          transition: 'height .55s cubic-bezier(.4,0,.2,1)', marginBottom: 24,
-        }}
-      >
-        <div ref={setShaderEl} style={{ position: 'absolute', inset: 0 }} />
+      {/* static idle panel — the run animation is the fullscreen takeover */}
+      {run.phase === 'idle' && (
         <div
+          data-noprint="true"
           style={{
-            position: 'absolute', inset: 0,
-            background:
-              'linear-gradient(180deg,rgba(250,250,247,.12) 0%,rgba(250,250,247,.55) 100%)',
+            position: 'relative', borderRadius: 16, border: '1px solid #DEE3B9',
+            background: '#F3F5E3', padding: 44, marginBottom: 24,
           }}
-        />
-        {run.phase === 'idle' && (
-          <div
-            style={{
-              position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-              justifyContent: 'center', padding: '0 44px', gap: 12,
-            }}
-          >
-            <div style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: '.16em', color: '#3A421A' }}>
-              WEEK OF {range.toUpperCase()}
-            </div>
-            <div
-              style={{
-                fontFamily: DISPLAY, fontSize: 33, fontWeight: 700,
-                letterSpacing: '-.02em', lineHeight: 1.08, maxWidth: 560,
-              }}
-            >
-              Generate this week&rsquo;s
-              <br />
-              Community Voices report
-            </div>
-            <div style={{ fontSize: 13.5, color: '#3F4136', maxWidth: 480, lineHeight: 1.55 }}>
-              Crawl → reduce → embed → retrieve → write. Grounded on{' '}
-              {fmt(status?.chunks_total)} chunks of what the community actually
-              said, scoped to this week.
-            </div>
-            <div style={{ marginTop: 6 }}>
-              <button
-                onClick={onGenerate}
-                disabled={!canGenerate}
-                className="btn-olive"
-                title={!canGenerate ? 'Add an API key in .env to generate' : undefined}
-                style={{
-                  padding: '13px 24px', borderRadius: 11,
-                  border: `1px solid ${canGenerate ? '#5A661A' : '#E1E3D2'}`,
-                  background: canGenerate ? ACCENT : '#EDEFDF',
-                  color: canGenerate ? '#FFFFFF' : '#6B6D5F',
-                  fontFamily: DISPLAY, fontWeight: 600, fontSize: 14.5,
-                  cursor: canGenerate ? 'pointer' : 'default',
-                  boxShadow: canGenerate ? '0 2px 10px rgba(90,102,26,.25)' : 'none',
-                }}
-              >
-                {canGenerate ? 'Generate report' : 'Generate report (needs an API key)'}
-              </button>
-            </div>
-            {error && (
-              <div style={{ fontFamily: MONO, fontSize: 11, color: '#A6522E' }}>
-                last run failed: {error}
-              </div>
-            )}
+        >
+          <div style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: '.16em', color: '#5A661A' }}>
+            WEEK OF {range.toUpperCase()}
           </div>
-        )}
-        {run.phase === 'run' && (
           <div
             style={{
-              position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-              justifyContent: 'center', padding: '0 44px', gap: 10,
+              fontFamily: DISPLAY, fontSize: 32, fontWeight: 700,
+              letterSpacing: '-.02em', lineHeight: 1.1, margin: '12px 0 10px', maxWidth: 540,
             }}
           >
-            <div style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: '.16em', color: '#3A421A' }}>
-              STAGE {run.stage + 1} / 5
-            </div>
-            <div style={{ fontFamily: DISPLAY, fontSize: 38, fontWeight: 700, letterSpacing: '-.02em', lineHeight: 1 }}>
-              {cur?.label}
-            </div>
-            <div style={{ fontSize: 14, color: '#33352B' }}>{cur?.desc}</div>
-            <div style={{ fontFamily: MONO, fontSize: 11, color: '#5F6153' }}>{cur?.detail}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 10 }}>
-              <div
-                style={{
-                  width: 280, height: 4, borderRadius: 2,
-                  background: 'rgba(22,24,15,.14)', overflow: 'hidden',
-                }}
-              >
-                <div
-                  style={{
-                    height: '100%', background: '#16180F', borderRadius: 2,
-                    width: `${pct}%`, transition: 'width .1s linear',
-                  }}
-                />
-              </div>
-              <div style={{ fontFamily: MONO, fontSize: 11, color: '#3A421A' }}>{pct}%</div>
-            </div>
+            Generate this week&rsquo;s Community Voices report
           </div>
-        )}
-        {run.phase === 'done' && (
-          <div
+          <div style={{ fontSize: 13.5, color: '#4A4C3E', maxWidth: 470, lineHeight: 1.55, marginBottom: 20 }}>
+            Crawl → reduce → embed → retrieve → write. Grounded on{' '}
+            {fmt(status?.chunks_total)} chunks of what the community actually
+            said, scoped to this week.
+          </div>
+          <button
+            onClick={onGenerate}
+            disabled={!canGenerate}
+            className="btn-olive"
+            title={!canGenerate ? 'Add an API key in .env to generate' : undefined}
             style={{
-              position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-              justifyContent: 'space-between', padding: '0 20px',
+              padding: '13px 24px', borderRadius: 11,
+              border: `1px solid ${canGenerate ? '#5A661A' : '#E1E3D2'}`,
+              background: canGenerate ? ACCENT : '#EDEFDF',
+              color: canGenerate ? '#FFFFFF' : '#6B6D5F',
+              fontFamily: DISPLAY, fontWeight: 600, fontSize: 14.5,
+              cursor: canGenerate ? 'pointer' : 'default',
             }}
           >
+            {canGenerate ? 'Generate report' : 'Generate report (needs an API key)'}
+          </button>
+          {error && (
+            <div style={{ fontFamily: MONO, fontSize: 11, color: '#A6522E', marginTop: 12 }}>
+              last run failed: {error}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* done: slim status bar */}
+      {run.phase === 'done' && (
+        <div
+          data-noprint="true"
+          style={{
+            height: 54, borderRadius: 16, border: '1px solid #E1E3D2',
+            background: '#FFFFFF', marginBottom: 24,
+            display: 'flex', alignItems: 'center',
+            justifyContent: 'space-between', padding: '0 20px',
+          }}
+        >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: error ? '#A6522E' : ACCENT, flex: 'none' }} />
               <span
@@ -179,9 +122,8 @@ export function ReportTab({
             >
               Regenerate
             </button>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* report body */}
       {run.phase === 'done' && doc && (

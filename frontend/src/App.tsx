@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type Comparison, type Doc, type Embeddings, type Stats, type Status } from './api'
-import { useGeneration } from './runstate'
+import { useGeneration, type RunState, type StageUi } from './runstate'
+import { useMeshShader } from './useMeshShader'
 import { pickDoc, weekRange } from './viewmodel'
 import { DISPLAY, MONO, whiteBtn } from './ui'
 import { Sidebar, type TabKey } from './components/Sidebar'
@@ -127,7 +128,7 @@ export default function App() {
         status={status}
         tab={tab}
         onTab={setTab}
-        open={sideOpen}
+        open={sideOpen && !running}
         onToggle={() => setSideOpen(!sideOpen)}
         run={gen.run}
         stages={gen.stages}
@@ -148,7 +149,7 @@ export default function App() {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {!sideOpen && (
+            {!sideOpen && !running && (
               <button
                 onClick={() => setSideOpen(true)}
                 title="Show sidebar"
@@ -224,8 +225,6 @@ export default function App() {
                 week={selectedWeek}
                 doc={doc}
                 run={gen.run}
-                stages={gen.stages}
-                shadeKey={gen.shadeKey}
                 canGenerate={canGenerate}
                 onGenerate={onGenerate}
                 onAb={() => setTab('ab')}
@@ -254,7 +253,60 @@ export default function App() {
             {tab === 'help' && <HelpTab status={status} />}
           </div>
         </div>
+
+        {running && <Takeover run={gen.run} stages={gen.stages} shadeKey={gen.shadeKey} />}
       </main>
+    </div>
+  )
+}
+
+/** Fullscreen generating takeover (animationStyle = "fullscreen takeover"):
+ * covers the main area with the stage shader while the pipeline runs. */
+function Takeover({ run, stages, shadeKey }: { run: RunState; stages: StageUi[]; shadeKey: string }) {
+  const setShaderEl = useMeshShader(shadeKey)
+  const cur = stages[run.stage]
+  const pct = Math.round(run.prog * 100)
+  return (
+    <div style={{ position: 'absolute', inset: 0, zIndex: 40, animation: 'ccFade .35s ease' }}>
+      <div ref={setShaderEl} style={{ position: 'absolute', inset: 0 }} />
+      <div
+        style={{
+          position: 'absolute', inset: 0,
+          background: 'linear-gradient(180deg,rgba(250,250,247,.1) 0%,rgba(250,250,247,.6) 100%)',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 12,
+          textAlign: 'center', padding: '0 40px',
+        }}
+      >
+        <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.16em', color: '#3A421A' }}>
+          STAGE {run.stage + 1} / 5
+        </div>
+        <div style={{ fontFamily: DISPLAY, fontSize: 52, fontWeight: 700, letterSpacing: '-.025em', lineHeight: 1 }}>
+          {cur?.label}
+        </div>
+        <div style={{ fontSize: 15, color: '#33352B' }}>{cur?.desc}</div>
+        <div style={{ fontFamily: MONO, fontSize: 11.5, color: '#5F6153' }}>{cur?.detail}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14 }}>
+          <div
+            style={{
+              width: 320, height: 4, borderRadius: 2,
+              background: 'rgba(22,24,15,.14)', overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                height: '100%', background: '#16180F', borderRadius: 2,
+                width: `${pct}%`, transition: 'width .1s linear',
+              }}
+            />
+          </div>
+          <div style={{ fontFamily: MONO, fontSize: 11, color: '#3A421A' }}>{pct}%</div>
+        </div>
+      </div>
     </div>
   )
 }
