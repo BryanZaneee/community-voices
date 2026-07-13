@@ -251,6 +251,10 @@ def compare_endpoint(body: CompareBody) -> dict:
         )
     except (llm.ModelUnavailable, ValueError) as exc:
         raise HTTPException(400, str(exc))
+    except Exception as exc:
+        # baseline/judge failure mid-comparison (LLM API error etc.) — the
+        # streaming path degrades gracefully; mirror that with a clean 502
+        raise HTTPException(502, f"comparison failed: {exc}")
     return _comparison(comp_id, state["conn"])
 
 

@@ -159,7 +159,8 @@ Score each document 1-5 on:
 - temporal_grounding: reflects that specific week vs. timeless filler
 - usefulness: how informative for someone catching up on the community
 Pick the overall winner ("a", "b", or "tie") and give a 2-3 sentence rationale.
-Judge only the content; ignore formatting differences."""
+Judge only the content; ignore formatting differences. Never use em dashes or
+en dashes in your rationale; use commas, colons, or periods instead."""
 
 JUDGE_REFERENCE_NOTE = """
 You are also given <source_material>: the community's actual posts from that
