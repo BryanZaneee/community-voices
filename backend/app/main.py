@@ -26,6 +26,11 @@ from app.rag.vector_index import VectorIndex
 
 state: dict = {}
 
+# Serializes every mutating code path: they share the lifespan connection,
+# the vector index's own connection, and the swappable retriever. Reads use
+# fresh per-request connections (read_conn) and never take the lock.
+write_lock = threading.Lock()
+
 
 def _build_retriever(conn: sqlite3.Connection, vector_index: VectorIndex) -> Retriever:
     provider = None
@@ -118,22 +123,23 @@ class GenerateBody(BaseModel):
 
 @app.post("/api/generate")
 def generate_endpoint(body: GenerateBody) -> dict:
-    try:
-        doc_id = generate.generate_document(
-            state["conn"],
-            state["retriever"],
-            week_start=body.week_start,
-            mode=body.mode,
-            model_key=body.model_key,
-            retrieval_mode=body.retrieval_mode,
+    with write_lock:
+        try:
+            doc_id = generate.generate_document(
+                state["conn"],
+                state["retriever"],
+                week_start=body.week_start,
+                mode=body.mode,
+                model_key=body.model_key,
+                retrieval_mode=body.retrieval_mode,
+            )
+        except (llm.ModelUnavailable, ValueError) as exc:
+            raise HTTPException(400, str(exc))
+        return _row_to_doc(
+            state["conn"].execute(
+                "SELECT * FROM documents WHERE id = ?", (doc_id,)
+            ).fetchone()
         )
-    except (llm.ModelUnavailable, ValueError) as exc:
-        raise HTTPException(400, str(exc))
-    return _row_to_doc(
-        state["conn"].execute(
-            "SELECT * FROM documents WHERE id = ?", (doc_id,)
-        ).fetchone()
-    )
 
 
 def _sse(event: str, data: dict) -> str:
@@ -235,54 +241,60 @@ def generate_stream(
 
     def run() -> None:
         try:
-            if live:
-                try:
-                    _live_pull(conn, progress)
-                except Exception as exc:
-                    # a stale report beats no report — fall back to the
-                    # stored corpus and say so on the stage cards
-                    progress("crawl", {"status": "end",
-                                       "detail": f"live pull failed: {exc}"})
-                    progress("reduce", {"status": "end",
-                                        "detail": "using stored corpus"})
-                    progress("embed", {"status": "end",
-                                       "detail": "using stored corpus"})
-            if mode == "rag":
-                # Regenerate runs the full A/B: RAG doc + baseline + judge,
-                # so the predict/ab/evaluate stages report real work. `done`
-                # fires as soon as both drafts exist — the judge deliberates
-                # while the user reads, then `comparison` delivers the verdict.
-                comp_id, _ = generate.run_comparison(
-                    conn,
-                    state["retriever"],
-                    week_start=week_start,
-                    model_key=model_key,
-                    retrieval_mode=retrieval_mode,
-                    progress=progress,
-                    on_ready=send_done,
-                )
-                q.put(_sse(
-                    "comparison",
-                    _comparison(comp_id, conn) if comp_id is not None else {},
-                ))
-            else:
-                send_done(generate.generate_document(
-                    conn,
-                    state["retriever"],
-                    week_start=week_start,
-                    mode=mode,
-                    model_key=model_key,
-                    retrieval_mode=retrieval_mode,
-                    progress=progress,
-                ))
+            with write_lock:
+                _run_locked()
         except Exception as exc:  # surfaced to the client as an SSE event
             q.put(_sse("error", {"detail": str(exc)}))
         finally:
             q.put(None)
 
+    def _run_locked() -> None:
+        if live:
+            try:
+                _live_pull(conn, progress)
+            except Exception as exc:
+                # a stale report beats no report — fall back to the
+                # stored corpus and say so on the stage cards
+                progress("crawl", {"status": "end",
+                                   "detail": f"live pull failed: {exc}"})
+                progress("reduce", {"status": "end",
+                                    "detail": "using stored corpus"})
+                progress("embed", {"status": "end",
+                                   "detail": "using stored corpus"})
+        if mode == "rag":
+            # Regenerate runs the full A/B: RAG doc + baseline + judge,
+            # so the predict/ab/evaluate stages report real work. `done`
+            # fires as soon as both drafts exist — the judge deliberates
+            # while the user reads, then `comparison` delivers the verdict.
+            comp_id, _ = generate.run_comparison(
+                conn,
+                state["retriever"],
+                week_start=week_start,
+                model_key=model_key,
+                retrieval_mode=retrieval_mode,
+                progress=progress,
+                on_ready=send_done,
+            )
+            q.put(_sse(
+                "comparison",
+                _comparison(comp_id, conn) if comp_id is not None else {},
+            ))
+        else:
+            send_done(generate.generate_document(
+                conn,
+                state["retriever"],
+                week_start=week_start,
+                mode=mode,
+                model_key=model_key,
+                retrieval_mode=retrieval_mode,
+                progress=progress,
+            ))
+
     def events():
         if not live:
-            yield from _cached_stage_events(conn, week_start)
+            with write_lock:
+                cached = _cached_stage_events(conn, week_start)
+            yield from cached
         # ponytail: one worker thread per stream, UI serializes runs; a job
         # queue is the upgrade path if generation ever goes multi-user.
         threading.Thread(target=run, daemon=True).start()
@@ -309,20 +321,21 @@ class CompareBody(BaseModel):
 @app.post("/api/compare")
 def compare_endpoint(body: CompareBody) -> dict:
     """RAG vs baseline — the only comparison kind."""
-    try:
-        comp_id, _ = generate.run_comparison(
-            state["conn"],
-            state["retriever"],
-            week_start=body.week_start,
-            model_key=body.model_key,
-        )
-    except (llm.ModelUnavailable, ValueError) as exc:
-        raise HTTPException(400, str(exc))
-    except Exception as exc:
-        # baseline/judge failure mid-comparison (LLM API error etc.) — the
-        # streaming path degrades gracefully; mirror that with a clean 502
-        raise HTTPException(502, f"comparison failed: {exc}")
-    return _comparison(comp_id, state["conn"])
+    with write_lock:
+        try:
+            comp_id, _ = generate.run_comparison(
+                state["conn"],
+                state["retriever"],
+                week_start=body.week_start,
+                model_key=body.model_key,
+            )
+        except (llm.ModelUnavailable, ValueError) as exc:
+            raise HTTPException(400, str(exc))
+        except Exception as exc:
+            # baseline/judge failure mid-comparison (LLM API error etc.) — the
+            # streaming path degrades gracefully; mirror that with a clean 502
+            raise HTTPException(502, f"comparison failed: {exc}")
+        return _comparison(comp_id, state["conn"])
 
 
 def _comparison(comp_id: int, conn: sqlite3.Connection) -> dict:
@@ -413,17 +426,18 @@ def download_document(
 def ingest_week() -> dict:
     if not os.environ.get("VOYAGE_API_KEY"):
         raise HTTPException(400, "Live pull requires VOYAGE_API_KEY in .env")
-    conn = state["conn"]
-    source = db.get_meta(conn, "source") or "lemmy"
-    community = (db.get_meta(conn, "community") or config.DEFAULT_COMMUNITY).split("@")[0]
-    provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
-    report = ingest.run_ingest(
-        conn, state["vector_index"], provider, community,
-        window="week", pages=1, source=source,
-    )
-    # BM25 is in-memory — rebuild so new chunks are searchable immediately
-    state["retriever"] = _build_retriever(conn, state["vector_index"])
-    return {"report": report, "weeks": db.week_windows(conn)}
+    with write_lock:
+        conn = state["conn"]
+        source = db.get_meta(conn, "source") or "lemmy"
+        community = (db.get_meta(conn, "community") or config.DEFAULT_COMMUNITY).split("@")[0]
+        provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
+        report = ingest.run_ingest(
+            conn, state["vector_index"], provider, community,
+            window="week", pages=1, source=source,
+        )
+        # BM25 is in-memory — rebuild so new chunks are searchable immediately
+        state["retriever"] = _build_retriever(conn, state["vector_index"])
+        return {"report": report, "weeks": db.week_windows(conn)}
 
 
 class SwitchSourceBody(BaseModel):
@@ -440,15 +454,16 @@ def ingest_source(body: SwitchSourceBody) -> dict:
     src = next((s for s in config.SOURCES if s["key"] == body.source_key), None)
     if src is None:
         raise HTTPException(400, f"unknown source: {body.source_key}")
-    conn = state["conn"]
-    db.reset_dataset(conn)
-    provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
-    report = ingest.run_ingest(
-        conn, state["vector_index"], provider, src.get("community", ""),
-        window="month", source=src["kind"],
-    )
-    state["retriever"] = _build_retriever(conn, state["vector_index"])
-    return {"report": report, "weeks": db.week_windows(conn)}
+    with write_lock:
+        conn = state["conn"]
+        db.reset_dataset(conn)
+        provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
+        report = ingest.run_ingest(
+            conn, state["vector_index"], provider, src.get("community", ""),
+            window="month", source=src["kind"],
+        )
+        state["retriever"] = _build_retriever(conn, state["vector_index"])
+        return {"report": report, "weeks": db.week_windows(conn)}
 
 
 @app.get("/api/embeddings")
