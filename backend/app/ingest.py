@@ -243,7 +243,7 @@ def post_to_markdown(post: dict, comments: list[dict]) -> str:
 
 def ingest_posts(
     conn: sqlite3.Connection,
-    subreddit: str,
+    community: str,
     posts: list[dict],
     comments_by_id: dict[str, list[dict]],
     provider: EmbeddingProvider,
@@ -318,7 +318,7 @@ def ingest_posts(
         if payload:
             db.set_meta(conn, "pca", json.dumps(payload))
 
-    db.set_meta(conn, "subreddit", subreddit)
+    db.set_meta(conn, "community", community)
     db.set_meta(conn, "embedding_model", provider.model)
     db.set_meta(conn, "embedding_dim", str(provider.dim))
     db.set_meta(

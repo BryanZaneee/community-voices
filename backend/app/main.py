@@ -81,7 +81,7 @@ def status(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
     weeks = db.week_windows(conn)
     ingest_report = db.get_meta(conn, "ingest_report")
     return {
-        "subreddit": db.get_meta(conn, "subreddit"),
+        "community": db.get_meta(conn, "community"),
         "source": db.get_meta(conn, "source") or "lemmy",
         "ingested_at": db.get_meta(conn, "ingested_at"),
         "embedding_model": db.get_meta(conn, "embedding_model"),
@@ -178,7 +178,7 @@ def _live_pull(conn: sqlite3.Connection, progress) -> None:
     Emits real crawl/reduce/embed stage events in place of the cached ones."""
     source = db.get_meta(conn, "source") or "lemmy"
     community = (
-        db.get_meta(conn, "subreddit") or config.DEFAULT_COMMUNITY
+        db.get_meta(conn, "community") or config.DEFAULT_COMMUNITY
     ).split("@")[0]
     progress("crawl", {"status": "start",
                        "detail": f"live pull · trailing 7 days · {community}"})
@@ -345,7 +345,6 @@ def _comparison(comp_id: int, conn: sqlite3.Connection) -> dict:
             ).fetchone()
         ),
         "judge": json.loads(row["judge_json"]) if row["judge_json"] else None,
-        "extra": json.loads(row["extra_json"]) if row["extra_json"] else None,
     }
 
 
@@ -401,7 +400,7 @@ def download_document(
     ).fetchone()
     if row is None:
         raise HTTPException(404, "document not found")
-    name = f"community-voices-{row['subreddit']}-{row['week_start']}-{row['mode']}.md"
+    name = f"community-voices-{row['community']}-{row['week_start']}-{row['mode']}.md"
     return Response(
         content=row["content_md"],
         media_type="text/markdown",
@@ -415,7 +414,7 @@ def ingest_week() -> dict:
         raise HTTPException(400, "Live pull requires VOYAGE_API_KEY in .env")
     conn = state["conn"]
     source = db.get_meta(conn, "source") or "lemmy"
-    community = (db.get_meta(conn, "subreddit") or config.DEFAULT_COMMUNITY).split("@")[0]
+    community = (db.get_meta(conn, "community") or config.DEFAULT_COMMUNITY).split("@")[0]
     provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
     report = ingest.run_ingest(
         conn, state["vector_index"], provider, community,

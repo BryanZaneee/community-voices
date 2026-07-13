@@ -108,7 +108,7 @@ def test_rag_vs_baseline_sides(seeded, stub_llm):
     assert rag_id == row["doc_b_id"]
     judge = json.loads(row["judge_json"])
     assert judge["winner"] in ("a", "b", "tie")
-    assert row["kind"] == "rag_vs_baseline" and row["extra_json"] is None
+    assert row["kind"] == "rag_vs_baseline"
     side_a = conn.execute(
         "SELECT mode FROM documents WHERE id = ?", (row["doc_a_id"],)
     ).fetchone()["mode"]

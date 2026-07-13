@@ -4,7 +4,7 @@ import json
 
 def test_status_shape(client):
     d = client.get("/api/status").json()
-    assert d["subreddit"] == "test-community"
+    assert d["community"] == "test-community"
     assert len(d["weeks"]) >= 2
     assert {"week_start", "week_end", "n_posts", "n_comments", "n_chunks"} <= set(
         d["weeks"][0]

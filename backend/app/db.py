@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS documents (
   mode TEXT NOT NULL CHECK (mode IN ('rag','baseline')),
   model_key TEXT NOT NULL,
   week_start TEXT NOT NULL,
-  subreddit TEXT NOT NULL,
+  community TEXT NOT NULL,
   content_md TEXT NOT NULL,
   report_json TEXT,
   queries TEXT,
@@ -66,12 +66,10 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE TABLE IF NOT EXISTS comparisons (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  kind TEXT NOT NULL CHECK (
-    kind IN ('rag_vs_baseline','model_vs_model','retrieval_vs_retrieval')),
+  kind TEXT NOT NULL CHECK (kind IN ('rag_vs_baseline')),
   doc_a_id INTEGER NOT NULL REFERENCES documents(id),
   doc_b_id INTEGER NOT NULL REFERENCES documents(id),
-  judge_json TEXT,
-  extra_json TEXT
+  judge_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -89,8 +87,50 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(documents)")}
     if "report_json" not in cols:
         conn.execute("ALTER TABLE documents ADD COLUMN report_json TEXT")
+    if "subreddit" in cols and "community" not in cols:
+        conn.execute("ALTER TABLE documents RENAME COLUMN subreddit TO community")
+    _migrate_meta_subreddit(conn)
+    _migrate_comparisons(conn)
     conn.commit()
     return conn
+
+
+def _migrate_meta_subreddit(conn: sqlite3.Connection) -> None:
+    row = conn.execute(
+        "SELECT value FROM meta WHERE key = 'subreddit'"
+    ).fetchone()
+    if row is None:
+        return
+    has_community = conn.execute(
+        "SELECT 1 FROM meta WHERE key = 'community'"
+    ).fetchone()
+    if not has_community:
+        conn.execute(
+            "INSERT INTO meta(key, value) VALUES ('community', ?)", (row["value"],)
+        )
+    conn.execute("DELETE FROM meta WHERE key = 'subreddit'")
+
+
+def _migrate_comparisons(conn: sqlite3.Connection) -> None:
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(comparisons)")}
+    if not cols or "extra_json" not in cols:
+        return
+    conn.executescript(
+        """
+        CREATE TABLE comparisons_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          kind TEXT NOT NULL CHECK (kind IN ('rag_vs_baseline')),
+          doc_a_id INTEGER NOT NULL REFERENCES documents(id),
+          doc_b_id INTEGER NOT NULL REFERENCES documents(id),
+          judge_json TEXT
+        );
+        INSERT INTO comparisons_new (id, created_at, kind, doc_a_id, doc_b_id, judge_json)
+        SELECT id, created_at, kind, doc_a_id, doc_b_id, judge_json FROM comparisons;
+        DROP TABLE comparisons;
+        ALTER TABLE comparisons_new RENAME TO comparisons;
+        """
+    )
 
 
 def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
@@ -115,7 +155,7 @@ def reset_dataset(conn: sqlite3.Connection) -> None:
         for table in ("vec_chunks", "chunks", "posts", "retrieval_stats",
                       "documents", "comparisons"):
             conn.execute(f"DELETE FROM {table}")
-        for key in ("pca", "subreddit", "source", "embedding_model",
+        for key in ("pca", "community", "source", "embedding_model",
                     "embedding_dim", "ingested_at", "ingest_report"):
             conn.execute("DELETE FROM meta WHERE key = ?", (key,))
 

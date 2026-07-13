@@ -46,7 +46,7 @@ TOPICS = [
 
 
 def make_posts(n: int = 16, weeks: int = 3, now: float | None = None) -> tuple[list[dict], dict]:
-    """Reddit/Lemmy-shaped post dicts spread over `weeks` trailing windows."""
+    """Lemmy/HN-shaped post dicts spread over `weeks` trailing windows."""
     now = now or time.time()
     posts = []
     for i in range(n):
@@ -179,8 +179,7 @@ def stub_llm(monkeypatch):
 @pytest.fixture
 def keyless(monkeypatch):
     """Remove every provider key so degradation paths are exercised."""
-    for var in ("VOYAGE_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY",
-                "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET"):
+    for var in ("VOYAGE_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY"):
         monkeypatch.delenv(var, raising=False)
 
 

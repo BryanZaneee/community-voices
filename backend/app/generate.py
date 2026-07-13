@@ -12,15 +12,15 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Callable
 
-from app import db, llm
+from app import config, db, llm
 from app.rag.retriever import RetrievalMode, Retriever
 
 CANONICAL_QUERIES = [
     "biggest most popular posts and highlights this week",
     "debates, disagreements, and controversies",
     "questions people are asking and help requests",
-    "tips, recommendations, and things worth playing",
-    "upcoming releases, events, and announcements",
+    "tips, recommendations, and practical advice",
+    "upcoming events, launches, and announcements",
     "community mood, jokes, and running themes",
 ]
 K_PER_QUERY = 8
@@ -100,7 +100,7 @@ predictions on the momentum you observe in the context.
 </context>"""
 
 BASELINE_INSTRUCTIONS = """You have NO access to this week's actual discussions.
-Using only your general knowledge of this community and gaming at large, write
+Using only your general knowledge of this community and its topic area, write
 your best guess at what was discussed and what comes next. Set share_pct and
 threads to null; you cannot measure them. Do not invent specific post titles
 or exact numbers; be honest, generalities are acceptable."""
@@ -207,7 +207,7 @@ def generate_document(
     `progress(stage, info)` is called around the retrieve and write stages
     (used by the SSE endpoint); it must not raise."""
     emit = progress or (lambda stage, info: None)
-    community = db.get_meta(conn, "subreddit") or "games@lemmy.world"
+    community = db.get_meta(conn, "community") or config.DEFAULT_COMMUNITY
     week_end = (
         datetime.fromisoformat(week_start) + timedelta(days=7)
     ).date().isoformat()
@@ -263,7 +263,7 @@ def generate_document(
 
     with conn:
         cur = conn.execute(
-            "INSERT INTO documents (mode, model_key, week_start, subreddit, "
+            "INSERT INTO documents (mode, model_key, week_start, community, "
             "  content_md, report_json, queries, retrieved_chunk_ids, "
             "  retrieval_mode, latency_ms, input_tokens, output_tokens) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
