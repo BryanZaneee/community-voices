@@ -238,6 +238,7 @@ export default function App() {
               <button
                 onClick={() => setSideOpen(true)}
                 title="Show sidebar"
+                aria-label="Show sidebar"
                 className="btn-white"
                 style={{
                   width: 32, height: 32, borderRadius: 9, border: '1px solid #D8D9CB',
@@ -261,6 +262,7 @@ export default function App() {
               >
                 <span>Week of</span>
                 <select
+                  aria-label="Week of"
                   value={week}
                   disabled={running}
                   onChange={(e) => setWeek(e.target.value)}

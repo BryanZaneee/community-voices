@@ -110,6 +110,7 @@ export function Sidebar({
             <button
               onClick={onToggle}
               title="Hide sidebar"
+              aria-label="Hide sidebar"
               className="btn-white"
               style={{
                 marginLeft: 'auto', width: 28, height: 28, borderRadius: 8,
@@ -143,6 +144,7 @@ export function Sidebar({
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <select
+                aria-label="Source"
                 className="source-select"
                 value={currentSourceKey}
                 disabled={sourceBusy || running || sources.length === 0}
@@ -209,6 +211,7 @@ export function Sidebar({
           {/* model + generate */}
           <div style={{ padding: '0 16px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <select
+              aria-label="Model"
               className="model-select"
               value={selectedModel}
               disabled={available.size === 0 || running}

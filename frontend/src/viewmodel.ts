@@ -23,6 +23,9 @@ export const fmtSecs = (ms: number | null | undefined): string =>
 export const fmtUsd = (v: number | null | undefined): string =>
   v == null ? '-' : `$${v.toFixed(3)}`
 
+export const fmtDeltaSecs = (deltaMs: number): string =>
+  `${Math.abs(deltaMs / 1000).toFixed(1)}s ${deltaMs >= 0 ? 'slower' : 'faster'}`
+
 /** "games@lemmy.world" -> { name: "c/games", instance: "lemmy.world" } */
 export function communityIdentity(community: string | null, source?: string) {
   if (!community) return { name: '-', instance: '', initial: '?' }
@@ -205,7 +208,7 @@ export function metricRows(
       ragN: rag.latency_ms,
       baseN: base.latency_ms,
       win: lower(rag.latency_ms, base.latency_ms),
-      delta: `${((rag.latency_ms - base.latency_ms) / 1000).toFixed(1)}s slower`,
+      delta: fmtDeltaSecs(rag.latency_ms - base.latency_ms),
     },
     {
       name: 'Input tokens',
@@ -277,7 +280,7 @@ export function prosCons(
   }
   const cons = [
     `${ratio(rag.cost_usd ?? 0, base.cost_usd ?? 0)} the cost per report (${fmtUsd(rag.cost_usd)} vs ${fmtUsd(base.cost_usd)})`,
-    `${((rag.latency_ms - base.latency_ms) / 1000).toFixed(1)}s slower end-to-end (retrieval + a ${ratio(rag.input_tokens, base.input_tokens)} larger prompt)`,
+    `${fmtDeltaSecs(rag.latency_ms - base.latency_ms)} end-to-end (retrieval + a ${ratio(rag.input_tokens, base.input_tokens)} larger prompt)`,
     'needs the crawl to have run: no ingest, no grounding',
   ]
   return { pros, cons }

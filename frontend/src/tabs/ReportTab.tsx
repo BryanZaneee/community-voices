@@ -316,15 +316,17 @@ export function ReportTab({
                 {status?.embedding_model ?? 'BM25 only'}) → retrieval scoped to the{' '}
                 {range} window ({doc.retrieval_mode ?? '-'}) → digest &amp; forecast
                 written by {doc.model_key}, claims citing post titles. See the{' '}
-                <a
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    onAb()
+                <button
+                  type="button"
+                  onClick={onAb}
+                  style={{
+                    background: 'none', border: 'none', padding: 0,
+                    font: 'inherit', color: 'inherit',
+                    textDecoration: 'underline', cursor: 'pointer',
                   }}
                 >
                   A/B comparison
-                </a>{' '}
+                </button>{' '}
                 for the ungrounded baseline.
               </div>
             </>
