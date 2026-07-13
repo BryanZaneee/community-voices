@@ -33,6 +33,18 @@ def test_complete_unknown_model_raises():
         llm.complete("nope", "sys", "user")
 
 
+def test_anthropic_json_schema_strips_unsupported_constraints():
+    from app.generate import REPORT_SCHEMA
+
+    schema = llm._anthropic_json_schema(REPORT_SCHEMA)
+    topics = schema["properties"]["topics"]
+    assert "maxItems" not in topics
+    assert topics.get("minItems") in (None, 0, 1)
+    share = topics["items"]["properties"]["share_pct"]
+    assert share.get("type") != ["integer", "null"]
+    assert "anyOf" in share
+
+
 def test_judge_unparseable_output_degrades(monkeypatch):
     class FakeChoice:
         message = type("M", (), {"content": "not json at all"})()

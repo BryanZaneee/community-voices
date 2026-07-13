@@ -5,10 +5,13 @@ judge_json() -> blind comparison scoring via DeepSeek JSON mode
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 import time
 from dataclasses import dataclass
+
+from anthropic import transform_schema
 
 from app import config
 
@@ -55,6 +58,35 @@ def _require_key(model_key: str) -> dict:
     return cfg
 
 
+def _normalize_type_unions(node: dict) -> dict:
+    """JSON Schema type arrays (e.g. ['integer', 'null']) -> anyOf for Anthropic."""
+    out = copy.deepcopy(node)
+    type_ = out.get("type")
+    if isinstance(type_, list):
+        out.pop("type")
+        out["anyOf"] = [{"type": t} for t in type_]
+    props = out.get("properties")
+    if isinstance(props, dict):
+        out["properties"] = {k: _normalize_type_unions(v) for k, v in props.items()}
+    items = out.get("items")
+    if isinstance(items, dict):
+        out["items"] = _normalize_type_unions(items)
+    for key in ("$defs", "definitions"):
+        val = out.get(key)
+        if isinstance(val, dict):
+            out[key] = {k: _normalize_type_unions(v) for k, v in val.items()}
+    for key in ("anyOf", "oneOf", "allOf"):
+        val = out.get(key)
+        if isinstance(val, list):
+            out[key] = [_normalize_type_unions(v) for v in val]
+    return out
+
+
+def _anthropic_json_schema(json_schema: dict) -> dict:
+    """Anthropic structured outputs reject minItems>1, maxItems, and type unions."""
+    return transform_schema(_normalize_type_unions(json_schema))
+
+
 def complete(
     model_key: str, system: str, user: str, json_schema: dict | None = None
 ) -> GenResult:
@@ -69,7 +101,10 @@ def complete(
         kwargs = {}
         if json_schema is not None:
             kwargs["output_config"] = {
-                "format": {"type": "json_schema", "schema": json_schema}
+                "format": {
+                    "type": "json_schema",
+                    "schema": _anthropic_json_schema(json_schema),
+                }
             }
         client = anthropic.Anthropic()
         resp = client.messages.create(
