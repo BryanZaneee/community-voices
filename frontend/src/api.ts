@@ -40,6 +40,7 @@ export interface Status {
   hybrid: boolean
   can_pull_live: boolean
   models_available: string[]
+  model_keys: string[]
   models: Record<string, { label: string; vendor: string }>
   sources: { key: string; kind: string; label: string }[]
 }

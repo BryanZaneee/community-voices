@@ -53,9 +53,10 @@ export function Sidebar({
   const setShaderEl = useMeshShader(shadeKey, true)
   const ident = communityIdentity(status?.community ?? null, status?.source)
   const running = run.phase === 'run'
-  const models = status?.models_available ?? []
+  const modelKeys = status?.model_keys ?? Object.keys(status?.models ?? {})
+  const available = new Set(status?.models_available ?? [])
   const sources = status?.sources ?? []
-  const canGenerate = models.length > 0 && !running
+  const canGenerate = available.size > 0 && !running
   const curStage = stages[run.stage]
 
   return (
@@ -210,16 +211,17 @@ export function Sidebar({
             <select
               className="model-select"
               value={selectedModel}
-              disabled={models.length === 0 || running}
+              disabled={available.size === 0 || running}
               onChange={(e) => onModel(e.target.value)}
-              title={models.length === 0 ? 'Add an API key in .env to generate' : 'Model'}
+              title={available.size === 0 ? 'Add an API key in .env to generate' : 'Model'}
             >
-              {models.length === 0 ? (
-                <option>no model key configured</option>
+              {modelKeys.length === 0 ? (
+                <option>no models configured</option>
               ) : (
-                models.map((k) => (
-                  <option key={k} value={k}>
+                modelKeys.map((k) => (
+                  <option key={k} value={k} disabled={!available.has(k)}>
                     {status?.models[k]?.label ?? k}
+                    {!available.has(k) ? ' (needs API key)' : ''}
                   </option>
                 ))
               )}
@@ -228,7 +230,7 @@ export function Sidebar({
               onClick={onGenerate}
               disabled={!canGenerate}
               className={canGenerate ? 'btn-brighten' : undefined}
-              title={models.length === 0 ? 'Add an API key in .env to generate' : undefined}
+              title={available.size === 0 ? 'Add an API key in .env to generate' : undefined}
               style={{
                 width: '100%', padding: '12px 14px', borderRadius: 10,
                 border: `1px solid ${running || !canGenerate ? '#E1E3D2' : '#1E5940'}`,

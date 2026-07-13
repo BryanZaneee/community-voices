@@ -100,6 +100,7 @@ def status(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
         "hybrid": state["retriever"].embedding is not None,
         "can_pull_live": bool(os.environ.get("VOYAGE_API_KEY")),
         "models_available": config.available_models(),
+        "model_keys": list(config.MODELS.keys()),
         "models": {
             key: {"label": cfg["label"], "vendor": cfg["vendor"]}
             for key, cfg in config.MODELS.items()

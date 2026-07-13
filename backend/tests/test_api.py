@@ -14,6 +14,12 @@ def test_status_shape(client):
     assert {"deepseek-v4", "deepseek-v4-flash", "claude-opus-4-8", "claude-sonnet-5"} <= set(
         d["models"]
     )
+    assert d["model_keys"] == [
+        "deepseek-v4",
+        "deepseek-v4-flash",
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+    ]
     assert d["models_available"] == []  # keyless
     assert {s["key"] for s in d["sources"]} >= {"hackernews"}
     # sidebar identity-card fields
