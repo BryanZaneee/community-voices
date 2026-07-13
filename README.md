@@ -39,7 +39,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
 The repo ships with a pre-ingested corpus (`data/community.sqlite`): a month
-of c/games activity as ~250 posts, 506 chunks with real voyage-3-large
+of c/games activity as 218 posts, 506 chunks with real voyage-3-large
 embeddings, and 5 week windows. Nothing is pre-generated. Every document and
 A/B comparison you see is produced live when you click the button, so you
 watch the RAG pipeline do its work rather than browse canned output.
@@ -196,8 +196,9 @@ search API instead; the in-app source switcher drives the same registry via
 Handling "overly large amounts of data": ~200-post cap per month, comment
 fetches only where there's real discussion, 12 comments/post, and per-field
 truncation. A month lands in the mid-hundreds of chunks (this repo's committed
-month: 506). Re-runs are idempotent: stable chunk IDs mean overlapping windows
-only embed what's new. The Ingestion tab's **"Run now"** button runs the same
+month: 506). Re-runs are idempotent: content-hashed chunk IDs mean overlapping
+windows only embed what's new or edited, and superseded chunks of re-crawled
+posts are pruned rather than left stale. The Ingestion tab's **"Run now"** button runs the same
 pipeline for the trailing 7 days (~15 s) and the new window appears in the
 week selector. Measured on the real month ingest: 200 posts + 119 comment
 fetches in 6.2 s, chunk + embed + index in 12.4 s.
