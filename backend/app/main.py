@@ -159,6 +159,35 @@ def _cached_stage_events(conn: sqlite3.Connection, week_start: str) -> list[str]
     ]
 
 
+def _live_pull(conn: sqlite3.Connection, progress) -> None:
+    """Trailing-7-day ingest of the active source before a RAG run, so the
+    report always sees the freshest posts (same pipeline as /api/ingest/week).
+    Emits real crawl/reduce/embed stage events in place of the cached ones."""
+    source = db.get_meta(conn, "source") or "lemmy"
+    community = (
+        db.get_meta(conn, "subreddit") or config.DEFAULT_COMMUNITY
+    ).split("@")[0]
+    progress("crawl", {"status": "start",
+                       "detail": f"live pull · trailing 7 days · {community}"})
+    report = ingest.run_ingest(
+        conn, state["vector_index"],
+        VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL),
+        community, window="week", pages=1, source=source,
+    )
+    # BM25 is in-memory — rebuild so the fresh chunks are retrievable now
+    state["retriever"] = _build_retriever(conn, state["vector_index"])
+    progress("crawl", {"status": "end",
+                       "detail": f"{report['posts']} posts · "
+                                 f"{report['comments']} comments · "
+                                 f"{report['fetch_s']} s"})
+    progress("reduce", {"status": "end",
+                        "detail": f"{report['posts']} posts → "
+                                  f"{report['chunks_total']} chunks"})
+    progress("embed", {"status": "end",
+                       "detail": f"{report['chunks_new']} new chunks embedded "
+                                 f"· {report['index_s']} s"})
+
+
 @app.get("/api/generate/stream")
 def generate_stream(
     week_start: str,
@@ -166,8 +195,13 @@ def generate_stream(
     mode: Literal["rag", "baseline"] = "rag",
     retrieval_mode: RetrievalMode = "hybrid",
 ) -> StreamingResponse:
-    """SSE variant of /api/generate: stage events, then `done` with the Doc."""
+    """SSE variant of /api/generate: stage events, then `done` with the Doc.
+
+    With a Voyage key, a RAG run starts with a live trailing-7-day pull so
+    the model writes from up-to-date data; keyless runs use the stored
+    corpus and replay the ingest-time stage numbers."""
     conn = state["conn"]
+    live = mode == "rag" and bool(os.environ.get("VOYAGE_API_KEY"))
     q: queue.Queue = queue.Queue()
 
     def progress(stage: str, info: dict) -> None:
@@ -182,6 +216,18 @@ def generate_stream(
 
     def run() -> None:
         try:
+            if live:
+                try:
+                    _live_pull(conn, progress)
+                except Exception as exc:
+                    # a stale report beats no report — fall back to the
+                    # stored corpus and say so on the stage cards
+                    progress("crawl", {"status": "end",
+                                       "detail": f"live pull failed: {exc}"})
+                    progress("reduce", {"status": "end",
+                                        "detail": "using stored corpus"})
+                    progress("embed", {"status": "end",
+                                       "detail": "using stored corpus"})
             if mode == "rag":
                 # Regenerate runs the full A/B: RAG doc + baseline + judge,
                 # so the predict/ab/evaluate stages report real work. `done`
@@ -216,7 +262,8 @@ def generate_stream(
             q.put(None)
 
     def events():
-        yield from _cached_stage_events(conn, week_start)
+        if not live:
+            yield from _cached_stage_events(conn, week_start)
         # ponytail: one worker thread per stream, UI serializes runs; a job
         # queue is the upgrade path if generation ever goes multi-user.
         threading.Thread(target=run, daemon=True).start()

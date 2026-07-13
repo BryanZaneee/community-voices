@@ -117,6 +117,65 @@ def test_generate_stream_events(client):
     assert client.get(f"/api/documents/{done['id']}").status_code == 200
 
 
+def test_generate_stream_live_pull(client, monkeypatch):
+    """With a Voyage key, a RAG stream runs a trailing-7-day pull first so
+    the model writes from fresh data; the crawl/reduce/embed stages report
+    the pull's real numbers instead of the cached ingest facts."""
+    from app import main as app_main
+    from app.rag.embeddings import FakeEmbeddingProvider
+
+    from tests.conftest import DIM
+
+    monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
+    monkeypatch.setattr(
+        app_main, "VoyageEmbeddingProvider",
+        lambda model: FakeEmbeddingProvider(dim=DIM),
+    )
+    pulls = []
+
+    def fake_run_ingest(conn, vec, provider, community, window, pages, source):
+        pulls.append({"community": community, "window": window, "source": source})
+        return {"posts": 3, "comments": 7, "chunks_total": 9, "chunks_new": 2,
+                "comment_fetches": 3, "fetch_s": 0.1, "index_s": 0.2}
+
+    monkeypatch.setattr(app_main.ingest, "run_ingest", fake_run_ingest)
+
+    week = _week(client)
+    with client.stream(
+        "GET",
+        f"/api/generate/stream?week_start={week}&model_key=deepseek-v4",
+    ) as resp:
+        body = "".join(resp.iter_text())
+
+    assert pulls == [
+        {"community": "test-community", "window": "week", "source": "lemmy"}
+    ]
+    assert "live pull" in body
+    assert "2 new chunks embedded" in body
+    assert "event: done" in body
+
+
+def test_generate_stream_live_pull_failure_degrades(client, monkeypatch):
+    """A failed live pull must not kill generation — the stored corpus
+    still produces the report."""
+    from app import main as app_main
+
+    monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("lemmy.world unreachable")
+
+    monkeypatch.setattr(app_main, "_live_pull", boom)
+    week = _week(client)
+    with client.stream(
+        "GET",
+        f"/api/generate/stream?week_start={week}&model_key=deepseek-v4",
+    ) as resp:
+        body = "".join(resp.iter_text())
+    assert "live pull failed" in body and "using stored corpus" in body
+    assert "event: done" in body and "event: error" not in body
+
+
 def test_generate_stream_error_event(client):
     week = _week(client)
     with client.stream(
