@@ -1,7 +1,10 @@
 """Community crawler: fill the vector store with a community's voices.
 
-Source: the open Lemmy API — no keys, no approval.
+Two sources share one pipeline, both keyless/no-approval-needed:
+- lemmy (default): the open Lemmy API.
     python -m app.ingest games --window month
+- hackernews: Algolia's HN Search API.
+    python -m app.ingest --source hackernews --window month
 
 Flow: listing sweep (paginated) -> parallel comment fetches -> post markdown
 -> chunk -> embed (batched) -> sqlite-vec index -> 2-D projection.
@@ -11,11 +14,13 @@ and overlapping windows only add what's new.
 from __future__ import annotations
 
 import argparse
+import html
 import json
+import re
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -114,6 +119,78 @@ def fetch_comments_lemmy(session: requests.Session, post: dict) -> list[dict]:
                 "author": cv["creator"]["name"],
                 "score": cv["counts"]["score"],
                 "body": body,
+            }
+        )
+        if len(out) >= COMMENTS_PER_POST:
+            break
+    return out
+
+
+# ----------------------------------------------------------- hackernews ----
+
+HN_API = "https://hn.algolia.com/api/v1"
+
+
+def _hn_strip_html(text: str) -> str:
+    """HN comment/story text is HTML (<p>, <a href>, entities) — plain text
+    is all the pipeline needs."""
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", text)).split())
+
+
+def _hn_hit_to_common(hit: dict) -> dict:
+    """Map an Algolia HN search hit onto the dict shape the pipeline uses."""
+    return {
+        "name": f"hn_{hit['objectID']}",
+        "_hn_id": hit["objectID"],
+        "title": hit.get("title") or "(untitled)",
+        "author": hit.get("author"),
+        "score": hit.get("points") or 0,
+        "num_comments": hit.get("num_comments") or 0,
+        "created_utc": hit["created_at_i"],
+        "permalink": f"https://news.ycombinator.com/item?id={hit['objectID']}",
+        "link_flair_text": None,
+        "selftext": "",  # search hits don't carry story text; most are links
+    }
+
+
+def fetch_top_posts_hn(
+    session: requests.Session, window: str, pages: int
+) -> list[dict]:
+    days = 30 if window == "month" else 7
+    cutoff = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
+    posts: list[dict] = []
+    for page in range(pages):
+        payload = _get_json(
+            session,
+            f"{HN_API}/search_by_date",
+            tags="story",
+            numericFilters=f"created_at_i>{cutoff}",
+            hitsPerPage=100,
+            page=page,
+        )
+        hits = payload.get("hits", [])
+        posts.extend(_hn_hit_to_common(h) for h in hits)
+        if len(hits) < 100:
+            break
+    return posts
+
+
+def fetch_comments_hn(session: requests.Session, post: dict) -> list[dict]:
+    """Top-level comments, in HN's own ranking order (no per-comment score)."""
+    try:
+        payload = _get_json(session, f"{HN_API}/items/{post['_hn_id']}")
+    except Exception:
+        return []
+    out = []
+    for child in payload.get("children") or []:
+        text = child.get("text")
+        if not text:
+            continue  # deleted/dead
+        out.append(
+            {
+                "author": child.get("author") or "?",
+                "score": child.get("points") or 0,
+                "body": _hn_strip_html(text),
             }
         )
         if len(out) >= COMMENTS_PER_POST:
@@ -239,17 +316,26 @@ def run_ingest(
     community: str,
     window: str = "month",
     pages: int = LISTING_PAGES,
+    source: str = "lemmy",
 ) -> dict:
     session = requests.Session()
     session.headers["User-Agent"] = config.USER_AGENT
-    display_name = f"{community}@{LEMMY_INSTANCE.removeprefix('https://')}"
+
+    if source == "hackernews":
+        display_name = "Hacker News"
+        fetch_posts = lambda: fetch_top_posts_hn(session, window, pages)
+        fetch_one = fetch_comments_hn
+    else:
+        display_name = f"{community}@{LEMMY_INSTANCE.removeprefix('https://')}"
+        fetch_posts = lambda: fetch_top_posts_lemmy(session, community, window, pages * 2)
+        fetch_one = fetch_comments_lemmy
 
     t0 = time.perf_counter()
-    posts = fetch_top_posts_lemmy(session, community, window, pages * 2)
+    posts = fetch_posts()
     wanting_comments = select_for_comments(posts)
     with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
         fetched = pool.map(
-            lambda p: (p["name"], fetch_comments_lemmy(session, p)),
+            lambda p: (p["name"], fetch_one(session, p)),
             wanting_comments,
         )
         comments_by_id = dict(fetched)
@@ -259,7 +345,7 @@ def run_ingest(
     report = ingest_posts(
         conn, display_name, posts, comments_by_id, provider, vector_index
     )
-    db.set_meta(conn, "source", "lemmy")
+    db.set_meta(conn, "source", source)
     report.update(
         {
             "comments": sum(len(v) for v in comments_by_id.values()),
@@ -276,6 +362,7 @@ def run_ingest(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest a community's voices")
     parser.add_argument("community", nargs="?", default=config.DEFAULT_COMMUNITY)
+    parser.add_argument("--source", choices=["lemmy", "hackernews"], default="lemmy")
     parser.add_argument("--window", choices=["month", "week"], default="month")
     parser.add_argument("--pages", type=int, default=LISTING_PAGES,
                         help="listing pages (~100 posts each)")
@@ -286,7 +373,7 @@ def main() -> None:
     provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
     report = run_ingest(
         conn, vector_index, provider, args.community,
-        window=args.window, pages=args.pages,
+        window=args.window, pages=args.pages, source=args.source,
     )
     print(json.dumps(report, indent=2))
     for w in db.week_windows(conn):

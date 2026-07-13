@@ -11,8 +11,11 @@ def test_status_shape(client):
     )
     assert d["hybrid"] is False  # keyless fixture
     assert d["can_pull_live"] is False
-    assert set(d["models"]) == {"deepseek-v4"}
+    assert {"deepseek-v4", "deepseek-v4-flash", "claude-opus-4-8", "claude-sonnet-5"} <= set(
+        d["models"]
+    )
     assert d["models_available"] == []  # keyless
+    assert {s["key"] for s in d["sources"]} >= {"hackernews"}
     # sidebar identity-card fields
     assert len(d["activity"]) == 14
     assert sum(a["n_posts"] for a in d["activity"]) > 0

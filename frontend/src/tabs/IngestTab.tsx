@@ -3,7 +3,8 @@ import { ACCENT, communityIdentity, fmt } from '../viewmodel'
 import { card, DISPLAY, kicker, MONO, whiteBtn } from '../ui'
 
 const STEPS = (status: Status | null) => {
-  const ident = communityIdentity(status?.subreddit ?? null)
+  const ident = communityIdentity(status?.subreddit ?? null, status?.source)
+  const spec = status?.ingest_spec
   return [
     {
       name: 'Scheduler',
@@ -13,12 +14,12 @@ const STEPS = (status: Status | null) => {
     {
       name: 'Crawler',
       desc: `Walks the open Lemmy API for ${ident.name}: top listings, then parallel comment fetches on threads with real discussion.`,
-      spec: 'lemmy API v3 · 6 workers',
+      spec: `lemmy API v3 · ${spec?.workers ?? '—'} workers`,
     },
     {
       name: 'Reduce',
       desc: 'Keeps the top posts per week, skips low-discussion threads, drops bot/deleted comments, truncates walls of text.',
-      spec: 'top 30 posts/wk · 12 comments/post',
+      spec: `top ${spec?.top_posts_per_week ?? '—'} posts/wk · ${spec?.comments_per_post ?? '—'} comments/post`,
     },
     {
       name: 'Chunk + embed',

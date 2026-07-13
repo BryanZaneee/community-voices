@@ -28,8 +28,9 @@ def _load_dotenv(path: Path = REPO_ROOT / ".env") -> None:
 
 _load_dotenv()
 
-# Generation model. Prices are USD per million tokens (input, output) for
-# the cost estimates shown in comparisons; update if the vendor changes them.
+# Generation model registry, DeepSeek V4 first (zero-key demo default).
+# Prices are USD per million tokens (input, output) for the cost estimates
+# shown in comparisons; update if a vendor changes them.
 MODELS: dict[str, dict] = {
     "deepseek-v4": {
         "provider": "openai_compat",
@@ -41,9 +42,46 @@ MODELS: dict[str, dict] = {
         "price_in": 0.28,
         "price_out": 0.42,
     },
+    "deepseek-v4-flash": {
+        "provider": "openai_compat",
+        "model": "deepseek-v4-flash",
+        "base_url": "https://api.deepseek.com",
+        "key_env": "DEEPSEEK_API_KEY",
+        "label": "DeepSeek V4 Flash",
+        "vendor": "DeepSeek",
+        "price_in": 0.14,
+        "price_out": 0.28,
+    },
+    "claude-opus-4-8": {
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "key_env": "ANTHROPIC_API_KEY",
+        "label": "Claude Opus 4.8",
+        "vendor": "Anthropic",
+        "price_in": 5.00,
+        "price_out": 25.00,
+    },
+    "claude-sonnet-5": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "key_env": "ANTHROPIC_API_KEY",
+        "label": "Claude Sonnet 5",
+        "vendor": "Anthropic",
+        "price_in": 3.00,
+        "price_out": 15.00,
+    },
 }
 
 DEFAULT_MODEL_KEY = "deepseek-v4"
+
+# Switchable ingest sources for the sidebar source picker — each reuses the
+# shared crawl/chunk/embed pipeline in app.ingest.
+SOURCES: list[dict] = [
+    {"key": "lemmy:games", "kind": "lemmy", "community": "games", "label": "c/games (Lemmy)"},
+    {"key": "lemmy:technology", "kind": "lemmy", "community": "technology", "label": "c/technology (Lemmy)"},
+    {"key": "lemmy:asklemmy", "kind": "lemmy", "community": "asklemmy", "label": "c/asklemmy (Lemmy)"},
+    {"key": "hackernews", "kind": "hackernews", "label": "Hacker News"},
+]
 
 
 def available_models() -> list[str]:

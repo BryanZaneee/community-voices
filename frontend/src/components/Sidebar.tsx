@@ -27,6 +27,12 @@ export function Sidebar({
   stages,
   onGenerate,
   shadeKey,
+  currentSourceKey,
+  onSwitchSource,
+  sourceBusy,
+  sourceError,
+  selectedModel,
+  onModel,
 }: {
   status: Status | null
   tab: TabKey
@@ -37,11 +43,18 @@ export function Sidebar({
   stages: StageUi[]
   onGenerate: () => void
   shadeKey: string
+  currentSourceKey: string
+  onSwitchSource: (key: string) => void
+  sourceBusy: boolean
+  sourceError: string | null
+  selectedModel: string
+  onModel: (key: string) => void
 }) {
   const setShaderEl = useMeshShader(shadeKey, true)
-  const ident = communityIdentity(status?.subreddit ?? null)
+  const ident = communityIdentity(status?.subreddit ?? null, status?.source)
   const running = run.phase === 'run'
   const models = status?.models_available ?? []
+  const sources = status?.sources ?? []
   const canGenerate = models.length > 0 && !running
   const curStage = stages[run.stage]
 
@@ -108,13 +121,14 @@ export function Sidebar({
             </button>
           </div>
 
-          {/* identity card — minimized; the full stats live in the report's
+          {/* identity card — click to switch which community/site the
+              report is generated from; full stats live in the report's
               community-pulse card */}
           <div
             style={{
               margin: '0 16px 16px', padding: '12px 14px', border: '1px solid #E7E7DD',
               borderRadius: 12, background: 'rgba(252,252,249,.72)', backdropFilter: 'blur(8px)',
-              display: 'flex', alignItems: 'center', gap: 10,
+              display: 'flex', alignItems: 'center', gap: 10, opacity: sourceBusy ? 0.6 : 1,
             }}
           >
             <div
@@ -127,11 +141,26 @@ export function Sidebar({
               {ident.initial}
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 14, lineHeight: 1.15 }}>
-                {ident.name}
-              </div>
-              <div style={{ fontFamily: MONO, fontSize: 10, color: '#8A8C7C' }}>
-                source of this report
+              <select
+                className="source-select"
+                value={currentSourceKey}
+                disabled={sourceBusy || running || sources.length === 0}
+                onChange={(e) => onSwitchSource(e.target.value)}
+                title="Switch source — re-ingests from scratch"
+                style={{
+                  fontFamily: DISPLAY, fontWeight: 600, fontSize: 14, lineHeight: 1.15,
+                  width: '100%',
+                }}
+              >
+                {!sources.some((s) => s.key === currentSourceKey) && (
+                  <option value={currentSourceKey}>{ident.name}</option>
+                )}
+                {sources.map((s) => (
+                  <option key={s.key} value={s.key}>{s.label}</option>
+                ))}
+              </select>
+              <div style={{ fontFamily: MONO, fontSize: 10, color: sourceError ? '#A6522E' : '#8A8C7C' }}>
+                {sourceBusy ? 'switching source…' : sourceError ?? 'source of this report · click to switch'}
               </div>
             </div>
           </div>
@@ -176,8 +205,25 @@ export function Sidebar({
 
           <div style={{ flex: 1 }} />
 
-          {/* generate */}
-          <div style={{ padding: '0 16px 12px' }}>
+          {/* model + generate */}
+          <div style={{ padding: '0 16px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <select
+              className="model-select"
+              value={selectedModel}
+              disabled={models.length === 0 || running}
+              onChange={(e) => onModel(e.target.value)}
+              title={models.length === 0 ? 'Add an API key in .env to generate' : 'Model'}
+            >
+              {models.length === 0 ? (
+                <option>no model key configured</option>
+              ) : (
+                models.map((k) => (
+                  <option key={k} value={k}>
+                    {status?.models[k]?.label ?? k}
+                  </option>
+                ))
+              )}
+            </select>
             <button
               onClick={onGenerate}
               disabled={!canGenerate}

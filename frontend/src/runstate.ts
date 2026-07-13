@@ -22,7 +22,7 @@ export const STAGE_KEYS: StageKey[] = [
 ]
 
 export function baseStages(status: Status | null, week: string): StageUi[] {
-  const ident = communityIdentity(status?.subreddit ?? null)
+  const ident = communityIdentity(status?.subreddit ?? null, status?.source)
   const w = status?.weeks.find((x) => x.week_start === week)
   return [
     {

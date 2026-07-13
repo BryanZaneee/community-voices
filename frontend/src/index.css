@@ -67,6 +67,38 @@ summary::-webkit-details-marker {
   display: none;
 }
 
+/* sidebar model picker — restored from the pre-single-model select */
+select.model-select {
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: 9px;
+  border: 1px solid #E1E3D2;
+  background: #FFFFFF;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #3A421A;
+  cursor: pointer;
+}
+select.model-select:disabled {
+  color: #A2A494;
+  cursor: default;
+}
+
+/* sidebar identity-card source picker — transparent so it inherits the
+   card's look; the card div supplies background/border. */
+select.source-select {
+  width: 100%;
+  border: none;
+  background: transparent;
+  appearance: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+}
+select.source-select:disabled {
+  cursor: default;
+}
+
 
 /* markdown fallback prose (docs generated before structured reports) */
 .md-fallback {

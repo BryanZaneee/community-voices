@@ -32,6 +32,9 @@ export default function App() {
   const [abError, setAbError] = useState<string | null>(null)
   const [ingestBusy, setIngestBusy] = useState(false)
   const [ingestError, setIngestError] = useState<string | null>(null)
+  const [selectedModel, setSelectedModel] = useState('')
+  const [sourceBusy, setSourceBusy] = useState(false)
+  const [sourceError, setSourceError] = useState<string | null>(null)
 
   const refreshRetrievalViews = useCallback(() => {
     api.stats().then(setStats).catch(() => {})
@@ -63,6 +66,16 @@ export default function App() {
     refreshRetrievalViews()
   }, [refreshRetrievalViews])
 
+  // keep the picked model valid as `status` (re)loads — default to the
+  // first available model, re-sync if the current pick drops out of it
+  useEffect(() => {
+    const available = status?.models_available ?? []
+    if (available.length && !available.includes(selectedModel)) {
+      setSelectedModel(available[0])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status])
+
   // load the selected week's newest doc; show it in the done state
   useEffect(() => {
     if (!week) return
@@ -92,23 +105,22 @@ export default function App() {
       return () => clearTimeout(id)
     } else setOverlay(false)
   }, [gen.run.phase, overlay])
-  const model = status?.models_available[0] ?? ''
-  const canGenerate = !!model && !running
+  const canGenerate = !!selectedModel && !running
 
   const onGenerate = () => {
     if (!canGenerate || !week) return
     setTab('report')
     setJudging(true)
-    gen.start(week, model)
+    gen.start(week, selectedModel)
   }
 
   const onRunAb = async () => {
-    if (!model || abBusy) return
+    if (!selectedModel || abBusy) return
     setAbBusy(true)
     setAbError(null)
     try {
       setComp(
-        await api.compare({ week_start: week, model_key: model }),
+        await api.compare({ week_start: week, model_key: selectedModel }),
       )
       refreshRetrievalViews()
     } catch (e) {
@@ -133,8 +145,29 @@ export default function App() {
     }
   }
 
+  const onSwitchSource = async (sourceKey: string) => {
+    if (sourceBusy) return
+    setSourceBusy(true)
+    setSourceError(null)
+    try {
+      const { weeks } = await api.ingestSource(sourceKey)
+      setStatus(await api.status())
+      setWeek(weeks[0]?.week_start ?? '')
+      setComp(null)
+      refreshRetrievalViews()
+    } catch (e) {
+      setSourceError((e as Error).message)
+    } finally {
+      setSourceBusy(false)
+    }
+  }
+
   const selectedWeek = status?.weeks.find((w) => w.week_start === week) ?? null
   const hasReport = gen.run.phase === 'done' && !!doc
+  const currentSourceKey =
+    status?.source === 'hackernews'
+      ? 'hackernews'
+      : `lemmy:${(status?.subreddit ?? '').split('@')[0]}`
 
   return (
     <div
@@ -154,6 +187,12 @@ export default function App() {
         stages={gen.stages}
         onGenerate={onGenerate}
         shadeKey={gen.shadeKey}
+        currentSourceKey={currentSourceKey}
+        onSwitchSource={onSwitchSource}
+        sourceBusy={sourceBusy}
+        sourceError={sourceError}
+        selectedModel={selectedModel}
+        onModel={setSelectedModel}
       />
 
       <main
@@ -255,7 +294,7 @@ export default function App() {
               <AbTab
                 comp={comp}
                 judging={judging}
-                canRun={!!model}
+                canRun={!!selectedModel}
                 busy={abBusy}
                 onRun={onRunAb}
                 error={abError}

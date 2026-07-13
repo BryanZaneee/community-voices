@@ -83,3 +83,15 @@ def test_week_totals_match_windows(seeded):
         totals = db.week_totals(conn, week_start)
         assert totals["n_posts"] == windows[week_start]["n_posts"]
         assert totals["n_comments"] > 0
+
+
+def test_reset_dataset_clears_everything(seeded):
+    conn, _, _, _ = seeded
+    db.set_meta(conn, "subreddit", "games@lemmy.world")
+    db.set_meta(conn, "source", "lemmy")
+    db.reset_dataset(conn)
+    for table in ("posts", "chunks", "vec_chunks", "retrieval_stats"):
+        assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+    assert db.get_meta(conn, "subreddit") is None
+    assert db.get_meta(conn, "source") is None
+    assert db.week_windows(conn) == []

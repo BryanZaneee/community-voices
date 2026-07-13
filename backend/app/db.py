@@ -107,6 +107,19 @@ def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
         )
 
 
+def reset_dataset(conn: sqlite3.Connection) -> None:
+    """Wipe everything from a prior ingest before switching sources — posts
+    and chunks carry no per-row source tag (only the global `meta` table
+    tracks the active community), so a clean switch means starting over."""
+    with conn:
+        for table in ("vec_chunks", "chunks", "posts", "retrieval_stats",
+                      "documents", "comparisons"):
+            conn.execute(f"DELETE FROM {table}")
+        for key in ("pca", "subreddit", "source", "embedding_model",
+                    "embedding_dim", "ingested_at", "ingest_report"):
+            conn.execute("DELETE FROM meta WHERE key = ?", (key,))
+
+
 def bump_stats(conn: sqlite3.Connection, chunk_ids: list[str]) -> None:
     if not chunk_ids:
         return

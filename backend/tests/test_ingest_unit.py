@@ -123,3 +123,65 @@ def test_run_ingest_persists_report_meta(tmp_path, monkeypatch):
     assert stored == report
     assert stored["posts"] == 6 and stored["comments"] > 0
     assert db.get_meta(conn, "source") == "lemmy"
+
+
+# ------------------------------------------------------------ hackernews ----
+
+
+def test_hn_strip_html():
+    raw = 'Saying this is <p>sudden.<p><a href="https:&#x2F;&#x2F;x.com">link</a>'
+    assert ingest._hn_strip_html(raw) == "Saying this is sudden. link"
+
+
+def test_hn_hit_to_common():
+    hit = {
+        "objectID": "48890890",
+        "title": "Ask HN: something",
+        "author": "bagol",
+        "points": 12,
+        "num_comments": 34,
+        "created_at_i": 1783941035,
+    }
+    p = ingest._hn_hit_to_common(hit)
+    assert p["name"] == "hn_48890890"
+    assert p["score"] == 12 and p["num_comments"] == 34
+    assert p["created_utc"] == 1783941035
+    assert p["permalink"] == "https://news.ycombinator.com/item?id=48890890"
+    assert p["selftext"] == ""
+
+
+def test_hn_hit_to_common_defaults_missing_points():
+    # link posts with no votes yet (or a comment-only search hit) omit points
+    p = ingest._hn_hit_to_common(
+        {"objectID": "1", "title": "T", "author": "a", "created_at_i": 1}
+    )
+    assert p["score"] == 0 and p["num_comments"] == 0
+
+
+def test_fetch_comments_hn_skips_deleted_and_caps(monkeypatch):
+    children = [{"author": "a", "text": None}]  # deleted -> dropped
+    children += [
+        {"author": f"u{i}", "text": f"<p>c{i}</p>", "points": None}
+        for i in range(ingest.COMMENTS_PER_POST + 5)
+    ]
+    monkeypatch.setattr(
+        ingest, "_get_json", lambda session, url, **params: {"children": children}
+    )
+    out = ingest.fetch_comments_hn(object(), {"_hn_id": "1"})
+    assert len(out) == ingest.COMMENTS_PER_POST
+    assert all(c["body"].startswith("c") for c in out)
+    assert all(c["score"] == 0 for c in out)
+
+
+def test_run_ingest_hackernews_dispatch(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "hn.sqlite")
+    vec = VectorIndex(tmp_path / "hn.sqlite", dim=DIM)
+    posts, comments = make_posts(n=4)
+    monkeypatch.setattr(ingest, "fetch_top_posts_hn", lambda s, w, p: posts)
+    monkeypatch.setattr(ingest, "fetch_comments_hn", lambda s, p: comments[p["name"]])
+    report = ingest.run_ingest(
+        conn, vec, FakeEmbeddingProvider(dim=DIM), "", source="hackernews"
+    )
+    assert report["posts"] == 4
+    assert db.get_meta(conn, "source") == "hackernews"
+    assert db.get_meta(conn, "subreddit") == "Hacker News"

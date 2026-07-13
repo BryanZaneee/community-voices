@@ -15,6 +15,13 @@ const TEAL = '#2E7D5B'
 const GRAY = '#C9CABB'
 const HEDGE = '#B9B4A5'
 
+/** The judge scores blind, so its rationale says "Document A/B" — label the
+ * sides for readers (A = LLM-only baseline, B = RAG, by construction). */
+const humanizeJudge = (text: string) =>
+  text
+    .replace(/\bdoc(?:ument)?\s*a\b/gi, 'the LLM-only document')
+    .replace(/\bdoc(?:ument)?\s*b\b/gi, 'the RAG document')
+
 function Paragraphs({ blocks, side }: { blocks: AbBlock[]; side: 'rag' | 'base' }) {
   return (
     <>
@@ -395,7 +402,9 @@ export function AbTab({
           </span>
           {judging
             ? 'Judge still deciding… the rationale will appear here.'
-            : judge?.rationale ?? 'No judge rationale stored for this comparison.'}
+            : judge?.rationale
+              ? humanizeJudge(judge.rationale)
+              : 'No judge rationale stored for this comparison.'}
         </div>
       </div>
     </div>

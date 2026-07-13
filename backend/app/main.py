@@ -91,6 +91,12 @@ def status(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
         "week_totals": db.week_totals(conn, weeks[0]["week_start"]) if weeks else None,
         "chunks_total": conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
         "last_ingest": json.loads(ingest_report) if ingest_report else None,
+        # real crawler constants, so UI spec chips can't drift from the code
+        "ingest_spec": {
+            "workers": ingest.FETCH_WORKERS,
+            "top_posts_per_week": ingest.TOP_POSTS_PER_WEEK,
+            "comments_per_post": ingest.COMMENTS_PER_POST,
+        },
         "hybrid": state["retriever"].embedding is not None,
         "can_pull_live": bool(os.environ.get("VOYAGE_API_KEY")),
         "models_available": config.available_models(),
@@ -98,6 +104,7 @@ def status(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
             key: {"label": cfg["label"], "vendor": cfg["vendor"]}
             for key, cfg in config.MODELS.items()
         },
+        "sources": config.SOURCES,
     }
 
 
@@ -212,7 +219,16 @@ def generate_stream(
         # ponytail: one worker thread per stream, UI serializes runs; a job
         # queue is the upgrade path if generation ever goes multi-user.
         threading.Thread(target=run, daemon=True).start()
-        while (item := q.get()) is not None:
+        while True:
+            try:
+                item = q.get(timeout=15)
+            except queue.Empty:
+                # keepalive comment: Cloudflare drops idle connections
+                # (~100s) and the LLM-call stages are silent for longer
+                yield ": ping\n\n"
+                continue
+            if item is None:
+                break
             yield item
 
     return StreamingResponse(events(), media_type="text/event-stream")
@@ -328,12 +344,39 @@ def ingest_week() -> dict:
     if not os.environ.get("VOYAGE_API_KEY"):
         raise HTTPException(400, "Live pull requires VOYAGE_API_KEY in .env")
     conn = state["conn"]
+    source = db.get_meta(conn, "source") or "lemmy"
     community = (db.get_meta(conn, "subreddit") or config.DEFAULT_COMMUNITY).split("@")[0]
     provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
     report = ingest.run_ingest(
-        conn, state["vector_index"], provider, community, window="week", pages=1,
+        conn, state["vector_index"], provider, community,
+        window="week", pages=1, source=source,
     )
     # BM25 is in-memory — rebuild so new chunks are searchable immediately
+    state["retriever"] = _build_retriever(conn, state["vector_index"])
+    return {"report": report, "weeks": db.week_windows(conn)}
+
+
+class SwitchSourceBody(BaseModel):
+    source_key: str
+
+
+@app.post("/api/ingest/source")
+def ingest_source(body: SwitchSourceBody) -> dict:
+    """Switch the active community/site: wipes the dataset (posts/chunks
+    carry no per-row source tag — see db.reset_dataset) and does a fresh
+    month-window ingest for the chosen source."""
+    if not os.environ.get("VOYAGE_API_KEY"):
+        raise HTTPException(400, "Switching sources requires VOYAGE_API_KEY in .env")
+    src = next((s for s in config.SOURCES if s["key"] == body.source_key), None)
+    if src is None:
+        raise HTTPException(400, f"unknown source: {body.source_key}")
+    conn = state["conn"]
+    db.reset_dataset(conn)
+    provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
+    report = ingest.run_ingest(
+        conn, state["vector_index"], provider, src.get("community", ""),
+        window="month", source=src["kind"],
+    )
     state["retriever"] = _build_retriever(conn, state["vector_index"])
     return {"report": report, "weeks": db.week_windows(conn)}
 

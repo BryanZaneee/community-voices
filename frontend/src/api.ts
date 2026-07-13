@@ -32,10 +32,16 @@ export interface Status {
   week_totals: { n_posts: number; n_comments: number } | null
   chunks_total: number
   last_ingest: IngestReport | null
+  ingest_spec: {
+    workers: number
+    top_posts_per_week: number
+    comments_per_post: number
+  } | null
   hybrid: boolean
   can_pull_live: boolean
   models_available: string[]
   models: Record<string, { label: string; vendor: string }>
+  sources: { key: string; kind: string; label: string }[]
 }
 
 export interface ReportTopic {
@@ -183,23 +189,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  status: () => request<Status>('/api/status'),
+  status: () => request<Status>('api/status'),
   documents: (weekStart?: string) =>
     request<Doc[]>(
-      `/api/documents${weekStart ? `?week_start=${weekStart}` : ''}`,
+      `api/documents${weekStart ? `?week_start=${weekStart}` : ''}`,
     ),
   compare: (body: { week_start: string; model_key: string }) =>
-    request<Comparison>('/api/compare', {
+    request<Comparison>('api/compare', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
   latestComparison: (kind: string) =>
-    request<Comparison>(`/api/comparisons/latest?kind=${kind}`),
-  embeddings: () => request<Embeddings>('/api/embeddings'),
-  stats: () => request<Stats>('/api/stats'),
+    request<Comparison>(`api/comparisons/latest?kind=${kind}`),
+  embeddings: () => request<Embeddings>('api/embeddings'),
+  stats: () => request<Stats>('api/stats'),
   ingestWeek: () =>
-    request<{ report: IngestReport; weeks: Week[] }>('/api/ingest/week', {
+    request<{ report: IngestReport; weeks: Week[] }>('api/ingest/week', {
       method: 'POST',
+    }),
+  ingestSource: (sourceKey: string) =>
+    request<{ report: IngestReport; weeks: Week[] }>('api/ingest/source', {
+      method: 'POST',
+      body: JSON.stringify({ source_key: sourceKey }),
     }),
 }
 
@@ -218,7 +229,7 @@ export function generateStream(
     mode: params.mode ?? 'rag',
   })
   return new Promise((resolve, reject) => {
-    const es = new EventSource(`/api/generate/stream?${qs}`)
+    const es = new EventSource(`api/generate/stream?${qs}`)
     // Close exactly once, on any terminal path: EventSource auto-reconnects
     // on any connection close it didn't initiate, which would re-run the
     // whole (paid) generation server-side.
