@@ -28,6 +28,8 @@ node_modules/
 # Test/tooling artifacts
 .playwright-mcp/
 cv-*.png
+Screenshot*.png
+stage-*.jpeg
 
 # Local working notes (kept out of the public repo)
 objective.md
