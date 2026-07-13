@@ -14,9 +14,9 @@ import { HelpTab } from './tabs/HelpTab'
 const TITLES: Record<TabKey, string> = {
   report: 'Weekly report',
   embed: 'Embeddings',
-  ab: 'A/B — RAG vs LLM-only',
+  ab: 'A/B: RAG vs LLM-only',
   ingest: 'Ingestion',
-  help: 'Help — how to read this',
+  help: 'Help: how to read this',
 }
 
 export default function App() {
@@ -262,7 +262,7 @@ export default function App() {
               }}
             >
               <a
-                href={doc ? `/api/documents/${doc.id}/download` : '#'}
+                href={doc ? `api/documents/${doc.id}/download` : '#'}
                 className="btn-white"
                 style={{ ...whiteBtn, textDecoration: 'none', display: 'inline-block' }}
               >

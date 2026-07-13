@@ -6,7 +6,7 @@ import type { RunState, StageUi } from '../runstate'
 
 export const NAVDEF = [
   { key: 'report', label: 'Weekly report', shapeR: '2px', shapeTf: 'none', fill: true, split: false },
-  { key: 'ab', label: 'A/B — RAG vs LLM', shapeR: '2px', shapeTf: 'none', fill: false, split: true },
+  { key: 'ab', label: 'A/B: RAG vs LLM', shapeR: '2px', shapeTf: 'none', fill: false, split: true },
   { key: 'embed', label: 'Embeddings', shapeR: '50%', shapeTf: 'none', fill: true, split: false },
   { key: 'ingest', label: 'Ingestion', shapeR: '2px', shapeTf: 'rotate(45deg)', fill: true, split: false },
   { key: 'help', label: 'Help', shapeR: '50%', shapeTf: 'none', fill: false, split: false },
@@ -146,7 +146,7 @@ export function Sidebar({
                 value={currentSourceKey}
                 disabled={sourceBusy || running || sources.length === 0}
                 onChange={(e) => onSwitchSource(e.target.value)}
-                title="Switch source — re-ingests from scratch"
+                title="Switch source (re-ingests from scratch)"
                 style={{
                   fontFamily: DISPLAY, fontWeight: 600, fontSize: 14, lineHeight: 1.15,
                   width: '100%',
@@ -240,7 +240,7 @@ export function Sidebar({
               }}
             >
               {running
-                ? `Generating — ${curStage?.label ?? ''}…`
+                ? `Generating: ${curStage?.label ?? ''}…`
                 : run.phase === 'done'
                   ? 'Regenerate report'
                   : 'Generate weekly report'}
@@ -254,7 +254,7 @@ export function Sidebar({
           >
             sqlite-vec · {fmt(status?.chunks_total)} chunks
             <br />
-            last ingest {status?.ingested_at?.replace('T', ' ').replace('+00:00', ' UTC') ?? '—'}
+            last ingest {status?.ingested_at?.replace('T', ' ').replace('+00:00', ' UTC') ?? '-'}
           </div>
         </div>
       </div>

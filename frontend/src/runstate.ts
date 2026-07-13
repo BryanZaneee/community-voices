@@ -41,7 +41,7 @@ export function baseStages(status: Status | null, week: string): StageUi[] {
       key: 'embed',
       label: 'Embed',
       desc: 'Chunking & embedding into sqlite-vec',
-      detail: `${fmt(w?.n_chunks)} chunks · ${status?.embedding_model ?? '—'}`,
+      detail: `${fmt(w?.n_chunks)} chunks · ${status?.embedding_model ?? '-'}`,
     },
     {
       key: 'retrieve',

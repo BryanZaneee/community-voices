@@ -5,6 +5,7 @@ import { card, DISPLAY, kicker, MONO, whiteBtn } from '../ui'
 const STEPS = (status: Status | null) => {
   const ident = communityIdentity(status?.subreddit ?? null, status?.source)
   const spec = status?.ingest_spec
+  const isHn = status?.source === 'hackernews'
   return [
     {
       name: 'Scheduler',
@@ -13,13 +14,13 @@ const STEPS = (status: Status | null) => {
     },
     {
       name: 'Crawler',
-      desc: `Walks the open Lemmy API for ${ident.name}: top listings, then parallel comment fetches on threads with real discussion.`,
-      spec: `lemmy API v3 · ${spec?.workers ?? '—'} workers`,
+      desc: `Walks the open ${isHn ? 'Algolia HN search API' : 'Lemmy API'} for ${ident.name}: top listings, then parallel comment fetches on threads with real discussion.`,
+      spec: `${isHn ? 'algolia HN API' : 'lemmy API v3'} · ${spec?.workers ?? '-'} workers`,
     },
     {
       name: 'Reduce',
       desc: 'Keeps the top posts per week, skips low-discussion threads, drops bot/deleted comments, truncates walls of text.',
-      spec: `top ${spec?.top_posts_per_week ?? '—'} posts/wk · ${spec?.comments_per_post ?? '—'} comments/post`,
+      spec: `top ${spec?.top_posts_per_week ?? '-'} posts/wk · ${spec?.comments_per_post ?? '-'} comments/post`,
     },
     {
       name: 'Chunk + embed',
@@ -28,7 +29,7 @@ const STEPS = (status: Status | null) => {
     },
     {
       name: 'Vector store',
-      desc: 'Upsert into sqlite-vec with stable content-derived chunk IDs — re-runs only embed what is new.',
+      desc: 'Upsert into sqlite-vec with stable content-derived chunk IDs; re-runs only embed what is new.',
       spec: 'sqlite-vec · BM25 hybrid',
     },
   ]
@@ -62,7 +63,7 @@ export function IngestTab({
   const duration =
     report?.fetch_s != null && report?.index_s != null
       ? `${Math.round(report.fetch_s + report.index_s)}s`
-      : '—'
+      : '-'
   const dropped =
     rawItems && report ? Math.round((1 - report.chunks_new / rawItems) * 100) : null
 
@@ -134,7 +135,7 @@ export function IngestTab({
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 14, alignItems: 'start' }}>
         {/* funnel */}
         <div style={card()}>
-          <div style={{ ...kicker, marginBottom: 4 }}>VOLUME REDUCTION — LAST RUN</div>
+          <div style={{ ...kicker, marginBottom: 4 }}>VOLUME REDUCTION: LAST RUN</div>
           <div style={{ fontSize: 11, color: '#A2A494', marginBottom: 14 }}>
             Skip low-discussion threads → collapse to post + top comments →
             thread-aware chunking → embed only what&rsquo;s new
@@ -163,14 +164,14 @@ export function IngestTab({
               </div>
               {dropped != null && (
                 <div style={{ marginTop: 14, fontFamily: MONO, fontSize: 10, color: '#8A8C7C' }}>
-                  {dropped}% of raw volume dropped before embedding — cost scales
+                  {dropped}% of raw volume dropped before embedding; cost scales
                   with signal, not noise.
                 </div>
               )}
             </>
           ) : (
             <div style={{ fontSize: 12, color: '#8A8C7C' }}>
-              No run recorded yet — the funnel fills in after the first ingest on
+              No run recorded yet; the funnel fills in after the first ingest on
               this database.
             </div>
           )}
@@ -199,7 +200,7 @@ export function IngestTab({
             }}
           >
             <span style={{ fontSize: 11.5, fontWeight: 600 }}>
-              {ingested?.slice(0, 10) ?? '—'}
+              {ingested?.slice(0, 10) ?? '-'}
             </span>
             <span style={{ fontFamily: MONO, fontSize: 10.5, color: '#6B6D5F' }}>
               {fmt(rawItems)}
@@ -216,7 +217,7 @@ export function IngestTab({
                 color: report ? '#3A421A' : '#8A8C7C',
               }}
             >
-              {report ? 'ok' : '—'}
+              {report ? 'ok' : '-'}
             </span>
           </div>
           <div style={{ marginTop: 12, fontSize: 11, lineHeight: 1.55, color: '#8A8C7C' }}>

@@ -128,7 +128,7 @@ export function EmbeddingsTab({
   if (!emb || !model || !stats) {
     return (
       <div style={{ fontFamily: MONO, fontSize: 11, color: '#8A8C7C' }}>
-        No embeddings yet — run an ingest first.
+        No embeddings yet. Run an ingest first.
       </div>
     )
   }
@@ -145,7 +145,7 @@ export function EmbeddingsTab({
   const pointById = new Map(model.points.map((p) => [p.id, p]))
   const topChunks = stats.top_chunks.slice(0, 6)
   const maxTop = topChunks[0]?.retrieved_count || 1
-  const dims = emb.points.length ? `${emb.embedding_model ?? '—'}` : '—'
+  const dims = emb.points.length ? `${emb.embedding_model ?? '-'}` : '-'
   const methodLabel = (emb.method ?? 'pca').toUpperCase()
 
   return (
@@ -347,7 +347,7 @@ export function EmbeddingsTab({
             <>
               <div style={{ ...kicker, marginBottom: 12 }}>CLUSTER INSPECTOR</div>
               <div style={{ fontSize: 12.5, lineHeight: 1.6, color: '#6B6D5F' }}>
-                Click a cluster in the map — or a legend chip — to see its
+                Click a cluster in the map (or a legend chip) to see its
                 most-retrieved chunks and how often the generator pulls from it.
               </div>
               <div
@@ -357,7 +357,7 @@ export function EmbeddingsTab({
                 }}
               >
                 {stats.chunks_never_retrieved} of {stats.chunks_total} chunks have
-                never been retrieved — the generator&rsquo;s attention follows a{' '}
+                never been retrieved; the generator&rsquo;s attention follows a{' '}
                 <span style={{ fontWeight: 700, color: '#3A421A' }}>power law</span>.
               </div>
             </>
@@ -388,7 +388,7 @@ export function EmbeddingsTab({
                     overflow: 'hidden', textOverflow: 'ellipsis',
                   }}
                 >
-                  {tc.title ? `${tc.title} — ` : ''}
+                  {tc.title ? `${tc.title}: ` : ''}
                   {tc.snippet}
                 </span>
                 <div style={{ height: 6, borderRadius: 3, background: '#F0F0E7' }}>

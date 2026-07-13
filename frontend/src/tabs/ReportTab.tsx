@@ -25,7 +25,7 @@ export function ReportTab({
   error: string | null
 }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
-  const range = week ? weekRange(week.week_start, week.week_end) : '—'
+  const range = week ? weekRange(week.week_start, week.week_end) : '-'
   const report = doc?.report_json ?? null
   const chunksUsed = doc?.retrieved_chunk_ids?.length ?? 0
 
@@ -100,7 +100,7 @@ export function ReportTab({
                 }}
               >
                 {error
-                  ? `regenerate failed: ${error} — showing the stored report`
+                  ? `regenerate failed: ${error}; showing the stored report`
                   : `Report generated · ${fmtSecs(doc?.latency_ms)} · ${
                       chunksUsed > 0
                         ? `${chunksUsed} chunks retrieved`
@@ -247,7 +247,7 @@ export function ReportTab({
                     NEXT WEEK PREDICTION
                   </div>
                   <div style={{ fontFamily: MONO, fontSize: 10, color: '#8A8C7C' }}>
-                    forecast · the week after {range.split('–')[1]?.trim() ?? ''}
+                    forecast · the week after {range.split(' to ')[1]?.trim() ?? ''}
                   </div>
                 </div>
                 <div
@@ -314,7 +314,7 @@ export function ReportTab({
                 {fmtSecs(doc.latency_ms)}. Methodology: crawl of the week&rsquo;s top
                 threads → {fmt(week?.n_chunks)} chunks embedded (
                 {status?.embedding_model ?? 'BM25 only'}) → retrieval scoped to the{' '}
-                {range} window ({doc.retrieval_mode ?? '—'}) → digest &amp; forecast
+                {range} window ({doc.retrieval_mode ?? '-'}) → digest &amp; forecast
                 written by {doc.model_key}, claims citing post titles. See the{' '}
                 <a
                   href="#"
@@ -368,8 +368,8 @@ function CommunityPulse({ status, week }: { status: Status | null; week: Week | 
         </div>
       </div>
       <div style={{ fontSize: 12, lineHeight: 1.5, color: '#6B6D5F', maxWidth: 560, marginBottom: 14 }}>
-        The fediverse&rsquo;s largest gaming community — its API is open by
-        design, so this whole pipeline runs with zero credentials.
+        An active community with an open API, public by design, so this
+        whole pipeline runs with zero credentials.
       </div>
       <div
         style={{
@@ -431,7 +431,7 @@ function CommunityPulse({ status, week }: { status: Status | null; week: Week | 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12 }}>
         <div style={{ width: 7, height: 7, borderRadius: '50%', background: ACCENT, flex: 'none' }} />
         <div style={{ fontSize: 10.5, color: '#5F6153', lineHeight: 1.35 }}>
-          Active weekly discussion — median {median} posts/day
+          Active weekly discussion: median {median} posts/day
         </div>
       </div>
     </div>

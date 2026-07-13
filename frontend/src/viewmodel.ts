@@ -15,17 +15,17 @@ export const CLUSTER_COLORS = [
 export const ACCENT = '#2E7D5B'
 
 export const fmt = (n: number | null | undefined): string =>
-  n == null ? '—' : n.toLocaleString('en-US')
+  n == null ? '-' : n.toLocaleString('en-US')
 
 export const fmtSecs = (ms: number | null | undefined): string =>
-  ms == null ? '—' : `${(ms / 1000).toFixed(1)}s`
+  ms == null ? '-' : `${(ms / 1000).toFixed(1)}s`
 
 export const fmtUsd = (v: number | null | undefined): string =>
-  v == null ? '—' : `$${v.toFixed(3)}`
+  v == null ? '-' : `$${v.toFixed(3)}`
 
 /** "games@lemmy.world" -> { name: "c/games", instance: "lemmy.world" } */
 export function communityIdentity(subreddit: string | null, source?: string) {
-  if (!subreddit) return { name: '—', instance: '', initial: '?' }
+  if (!subreddit) return { name: '-', instance: '', initial: '?' }
   if (source === 'hackernews') {
     return { name: 'Hacker News', instance: 'news.ycombinator.com', initial: 'Y' }
   }
@@ -44,7 +44,7 @@ export function weekRange(weekStart: string, weekEnd: string): string {
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
   const s = new Date(weekStart + 'T00:00:00Z')
   const e = new Date(weekEnd + 'T00:00:00Z')
-  return `${s.toLocaleDateString('en-US', { ...opts, timeZone: 'UTC' })} – ${e.toLocaleDateString('en-US', { ...opts, timeZone: 'UTC' })}`
+  return `${s.toLocaleDateString('en-US', { ...opts, timeZone: 'UTC' })} to ${e.toLocaleDateString('en-US', { ...opts, timeZone: 'UTC' })}`
 }
 
 // ---------------------------------------------------------------- A/B ----
@@ -173,7 +173,7 @@ export interface MetricRow {
 }
 
 const ratio = (hi: number, lo: number): string =>
-  lo > 0 ? `${(hi / lo).toFixed(1)}×` : '—'
+  lo > 0 ? `${(hi / lo).toFixed(1)}×` : '-'
 
 export function metricRows(
   comp: Comparison,
@@ -262,7 +262,7 @@ export function prosCons(
   const base = comp.doc_a
   const judge = comp.judge?.scores
   const pros = [
-    `${ragStats.grounded} claims trace to real retrieved threads — the baseline has 0 verifiable claims`,
+    `${ragStats.grounded} claims trace to real retrieved threads; the baseline has 0 verifiable claims`,
     `covers this exact week: grounded on ${rag.retrieved_chunk_ids?.length ?? 0} chunks scoped to the covered window`,
   ]
   if (baseStats.hedged > ragStats.hedged) {
@@ -278,7 +278,7 @@ export function prosCons(
   const cons = [
     `${ratio(rag.cost_usd ?? 0, base.cost_usd ?? 0)} the cost per report (${fmtUsd(rag.cost_usd)} vs ${fmtUsd(base.cost_usd)})`,
     `${((rag.latency_ms - base.latency_ms) / 1000).toFixed(1)}s slower end-to-end (retrieval + a ${ratio(rag.input_tokens, base.input_tokens)} larger prompt)`,
-    'needs the crawl to have run — no ingest, no grounding',
+    'needs the crawl to have run: no ingest, no grounding',
   ]
   return { pros, cons }
 }

@@ -7,11 +7,11 @@ import { card, DISPLAY } from '../ui'
 const HELP_ITEMS = (community: string, model: string) => [
   {
     q: 'What is this report?',
-    a: `Every week we read what ${community} posted, then write a short digest of what people talked about — plus a forecast of what they’ll likely talk about next week.`,
+    a: `Every week we read what ${community} posted, then write a short digest of what people talked about, plus a forecast of what they’ll likely talk about next week.`,
   },
   {
     q: 'What is RAG?',
-    a: 'Retrieval-Augmented Generation. Instead of letting the AI write from memory, we first hand it the most relevant real posts from the week. It can only summarize what people actually said — which keeps the report honest and specific.',
+    a: 'Retrieval-Augmented Generation. Instead of letting the AI write from memory, we first hand it the most relevant real posts from the week. It can only summarize what people actually said, which keeps the report honest and specific.',
   },
   {
     q: 'What are embeddings?',
@@ -19,11 +19,11 @@ const HELP_ITEMS = (community: string, model: string) => [
   },
   {
     q: 'What is a vector store?',
-    a: 'The database where those number-versions of posts live (ours is SQLite with the sqlite-vec extension — a vectorized table inside a relational database). When we build a report, we search it for the posts closest in meaning to each part of the story.',
+    a: 'The database where those number-versions of posts live (ours is SQLite with the sqlite-vec extension, a vectorized table inside a relational database). When we build a report, we search it for the posts closest in meaning to each part of the story.',
   },
   {
     q: 'What is a “chunk”?',
-    a: 'A bite-sized piece of a discussion — a post plus its best comments. Long threads get split into chunks so the AI receives small, focused pieces of real context.',
+    a: 'A bite-sized piece of a discussion: a post plus its best comments. Long threads get split into chunks so the AI receives small, focused pieces of real context.',
   },
   {
     q: 'How do I read the embeddings map?',
@@ -31,7 +31,7 @@ const HELP_ITEMS = (community: string, model: string) => [
   },
   {
     q: 'What is retrieval heat?',
-    a: 'A view of which chunks the report actually used. Bigger, darker dots were pulled into the report most often — the community’s “greatest hits.”',
+    a: 'A view of which chunks the report actually used. Bigger, darker dots were pulled into the report most often: the community’s “greatest hits.”',
   },
   {
     q: 'What is the A/B comparison?',
@@ -39,15 +39,15 @@ const HELP_ITEMS = (community: string, model: string) => [
   },
   {
     q: 'What do the run metrics mean?',
-    a: 'Cost is what one report costs to generate. Tokens measure how much text goes in and out — more retrieved context in means higher cost, but grounded claims out.',
+    a: 'Cost is what one report costs to generate. Tokens measure how much text goes in and out; more retrieved context in means higher cost, but grounded claims out.',
   },
   {
     q: 'How does data get in?',
-    a: `An automated crawler (one cron line, or the Run-now button) reads the week’s top threads from the open Lemmy API, keeps the real discussion, and files it into the vector store as ${model} embeddings — ready before the report is written.`,
+    a: `An automated crawler (one cron line, or the Run-now button) reads the week’s top threads from the community’s open API, keeps the real discussion, and files it into the vector store as ${model} embeddings, ready before the report is written.`,
   },
   {
     q: 'What does prediction confidence mean?',
-    a: 'How sure the model is a topic will take off next week, based on signals like scheduled events and rising activity. 88% means very likely — not guaranteed.',
+    a: 'How sure the model is a topic will take off next week, based on signals like scheduled events and rising activity. 88% means very likely, not guaranteed.',
   },
 ]
 
@@ -57,7 +57,7 @@ export function HelpTab({ status }: { status: Status | null }) {
   return (
     <div>
       <div style={{ maxWidth: 720, fontSize: 13.5, lineHeight: 1.6, color: '#3F4136', marginBottom: 18 }}>
-        Everything on this page, explained in plain language — no jargon required.
+        Everything on this page, explained in plain language, no jargon required.
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {items.map((h) => (
