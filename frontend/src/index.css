@@ -45,11 +45,6 @@ button {
   font-family: inherit;
 }
 
-@keyframes ccPulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.4); opacity: .55; }
-}
-
 @keyframes ccFade {
   from { opacity: 0; }
   to { opacity: 1; }

@@ -179,38 +179,6 @@ export function Sidebar({
 
           <div style={{ flex: 1 }} />
 
-          {/* pipeline status */}
-          {run.phase !== 'idle' && (
-            <div style={{ padding: '0 20px 14px' }}>
-              <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.14em', color: '#8A8C7C', marginBottom: 9 }}>
-                PIPELINE — THIS RUN
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {stages.map((st, i) => {
-                  const state = running
-                    ? i < run.stage ? 'done' : i === run.stage ? 'active' : 'todo'
-                    : run.phase === 'done' ? 'done' : 'todo'
-                  const color = state === 'todo' ? '#B9BBA9' : '#3A421A'
-                  return (
-                    <div key={st.key} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                      <span
-                        style={{
-                          width: 8, height: 8, borderRadius: '50%', flex: 'none',
-                          background: state === 'done' ? ACCENT : state === 'active' ? '#B9C65A' : '#E3E4D8',
-                          animation: state === 'active' ? 'ccPulse 1.1s ease-in-out infinite' : 'none',
-                        }}
-                      />
-                      <span style={{ fontSize: 12, fontWeight: 600, color, flex: 1 }}>{st.label}</span>
-                      <span style={{ fontFamily: MONO, fontSize: 10, color }}>
-                        {state === 'done' ? '✓' : state === 'active' ? '●' : '○'}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
           {/* generate */}
           <div style={{ padding: '0 16px 12px' }}>
             <button
