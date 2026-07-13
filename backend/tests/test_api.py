@@ -117,6 +117,12 @@ def test_generate_stream_events(client):
     assert client.get(f"/api/documents/{done['id']}").status_code == 200
 
 
+def _backdate_ingest(app_main, when="2026-07-01T06:00:00+00:00"):
+    from app import db as _db
+
+    _db.set_meta(app_main.state["conn"], "ingested_at", when)
+
+
 def test_generate_stream_live_pull(client, monkeypatch):
     """With a Voyage key, a RAG stream runs a trailing-7-day pull first so
     the model writes from fresh data; the crawl/reduce/embed stages report
@@ -131,6 +137,7 @@ def test_generate_stream_live_pull(client, monkeypatch):
         app_main, "VoyageEmbeddingProvider",
         lambda model: FakeEmbeddingProvider(dim=DIM),
     )
+    _backdate_ingest(app_main)  # fixture ingested "today", which would skip
     pulls = []
 
     def fake_run_ingest(conn, vec, provider, community, window, pages, source):
@@ -161,6 +168,7 @@ def test_generate_stream_live_pull_failure_degrades(client, monkeypatch):
     from app import main as app_main
 
     monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
+    _backdate_ingest(app_main)
 
     def boom(*args, **kwargs):
         raise RuntimeError("lemmy.world unreachable")
@@ -174,6 +182,28 @@ def test_generate_stream_live_pull_failure_degrades(client, monkeypatch):
         body = "".join(resp.iter_text())
     assert "live pull failed" in body and "using stored corpus" in body
     assert "event: done" in body and "event: error" not in body
+
+
+def test_generate_stream_skips_pull_when_fresh(client, monkeypatch):
+    """Already ingested today -> no re-crawl; cached stages replay. The
+    seeded fixture's ingested_at IS today, so no backdating here."""
+    from app import main as app_main
+
+    monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
+
+    def boom(*args, **kwargs):
+        raise AssertionError("live pull must not run when data is fresh")
+
+    monkeypatch.setattr(app_main.ingest, "run_ingest", boom)
+    week = _week(client)
+    with client.stream(
+        "GET",
+        f"/api/generate/stream?week_start={week}&model_key=deepseek-v4",
+    ) as resp:
+        body = "".join(resp.iter_text())
+    assert "live pull" not in body
+    assert '"status": "cached"' in body
+    assert "event: done" in body
 
 
 def test_generate_stream_error_event(client):

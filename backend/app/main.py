@@ -159,6 +159,18 @@ def _cached_stage_events(conn: sqlite3.Connection, week_start: str) -> list[str]
     ]
 
 
+def _pulled_today(conn: sqlite3.Connection) -> bool:
+    """True if the corpus was already ingested today (UTC) — fresh enough
+    that a pre-report live pull would just re-crawl the same posts."""
+    ts = db.get_meta(conn, "ingested_at")
+    if not ts:
+        return False
+    return (
+        datetime.fromisoformat(ts).date()
+        == datetime.now(timezone.utc).date()
+    )
+
+
 def _live_pull(conn: sqlite3.Connection, progress) -> None:
     """Trailing-7-day ingest of the active source before a RAG run, so the
     report always sees the freshest posts (same pipeline as /api/ingest/week).
@@ -198,10 +210,15 @@ def generate_stream(
     """SSE variant of /api/generate: stage events, then `done` with the Doc.
 
     With a Voyage key, a RAG run starts with a live trailing-7-day pull so
-    the model writes from up-to-date data; keyless runs use the stored
-    corpus and replay the ingest-time stage numbers."""
+    the model writes from up-to-date data — skipped when the corpus was
+    already ingested today. Keyless runs use the stored corpus and replay
+    the ingest-time stage numbers."""
     conn = state["conn"]
-    live = mode == "rag" and bool(os.environ.get("VOYAGE_API_KEY"))
+    live = (
+        mode == "rag"
+        and bool(os.environ.get("VOYAGE_API_KEY"))
+        and not _pulled_today(conn)
+    )
     q: queue.Queue = queue.Queue()
 
     def progress(stage: str, info: dict) -> None:
