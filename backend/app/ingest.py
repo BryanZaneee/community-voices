@@ -31,7 +31,7 @@ from app.rag.embeddings import EmbeddingProvider, VoyageEmbeddingProvider
 from app.rag.pca import compute_pca
 from app.rag.vector_index import VectorIndex
 
-LISTING_PAGES = 2          # 2 x limit=100 -> ~200 posts for the month sweep
+LISTING_PAGES = 2          # ~200-post month sweep (lemmy 4 pages x 50, HN 2 x 100)
 COMMENTS_PER_POST = 12
 MIN_COMMENTS_TO_FETCH = 5  # skip comment requests for low-discussion posts
 TOP_POSTS_PER_WEEK = 30     # only the week's top posts get comment fetches
@@ -292,12 +292,7 @@ def ingest_posts(
             if row["chunk_id"] not in new_ids
         ]
         if stale:
-            vector_index.delete_chunks(stale)
-            with conn:
-                conn.executemany(
-                    "DELETE FROM retrieval_stats WHERE chunk_id = ?",
-                    [(cid,) for cid in stale],
-                )
+            vector_index.delete_chunks(stale)  # also drops retrieval_stats
 
     # Skip chunks already embedded (stable IDs make re-runs surgical).
     existing = {

@@ -125,8 +125,9 @@ class VectorIndex:
         return count
 
     def delete_chunks(self, chunk_ids: list[str]) -> int:
-        """Remove chunks and their vectors in one transaction; unknown IDs
-        are ignored. Returns the number of chunks actually deleted."""
+        """Remove chunks, their vectors, and their retrieval stats in one
+        transaction; unknown IDs are ignored. Returns the number of chunks
+        actually deleted."""
         if not chunk_ids:
             return 0
         conn = self._connect()
@@ -145,6 +146,16 @@ class VectorIndex:
                     "DELETE FROM chunks WHERE chunk_id = ?", (chunk_id,)
                 )
                 count += 1
+            # retrieval_stats DDL is owned by db.py; a standalone VectorIndex
+            # (tests, :memory:) may not have it
+            if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'retrieval_stats'"
+            ).fetchone():
+                ph = ",".join("?" * len(chunk_ids))
+                conn.execute(
+                    f"DELETE FROM retrieval_stats WHERE chunk_id IN ({ph})",
+                    chunk_ids,
+                )
         return count
 
     def _upsert(

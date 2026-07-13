@@ -11,8 +11,6 @@ import os
 import time
 from dataclasses import dataclass
 
-from anthropic import transform_schema
-
 from app import config
 
 MAX_TOKENS = 4096
@@ -23,12 +21,12 @@ class ModelUnavailable(RuntimeError):
 
 
 def est_cost_usd(
-    model_key: str, input_tokens: float, output_tokens: float
+    model_key: str, input_tokens: float | None, output_tokens: float | None
 ) -> float | None:
     """USD cost from token counts and the registry's per-MTok prices."""
     cfg = config.MODELS.get(model_key)
-    if cfg is None:
-        return None
+    if cfg is None or input_tokens is None or output_tokens is None:
+        return None  # token columns are nullable on old document rows
     return (
         input_tokens * cfg["price_in"] + output_tokens * cfg["price_out"]
     ) / 1_000_000
@@ -84,6 +82,8 @@ def _normalize_type_unions(node: dict) -> dict:
 
 def _anthropic_json_schema(json_schema: dict) -> dict:
     """Anthropic structured outputs reject minItems>1, maxItems, and type unions."""
+    from anthropic import transform_schema  # lazy, like the SDK clients
+
     return transform_schema(_normalize_type_unions(json_schema))
 
 

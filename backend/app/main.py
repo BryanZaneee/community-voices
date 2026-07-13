@@ -389,7 +389,7 @@ def list_documents(
         sql += " WHERE week_start = ?"
         args.append(week_start)
     sql += " ORDER BY id DESC LIMIT ?"
-    args.append(min(limit, 100))
+    args.append(max(1, min(limit, 100)))  # SQLite treats LIMIT -1 as unbounded
     return [_row_to_doc(r) for r in conn.execute(sql, args).fetchall()]
 
 
