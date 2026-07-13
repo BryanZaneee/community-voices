@@ -124,6 +124,29 @@ class VectorIndex:
                 count += 1
         return count
 
+    def delete_chunks(self, chunk_ids: list[str]) -> int:
+        """Remove chunks and their vectors in one transaction; unknown IDs
+        are ignored. Returns the number of chunks actually deleted."""
+        if not chunk_ids:
+            return 0
+        conn = self._connect()
+        count = 0
+        with conn:
+            for chunk_id in chunk_ids:
+                row = conn.execute(
+                    "SELECT rowid FROM chunks WHERE chunk_id = ?", (chunk_id,)
+                ).fetchone()
+                if row is None:
+                    continue
+                conn.execute(
+                    "DELETE FROM vec_chunks WHERE rowid = ?", (row["rowid"],)
+                )
+                conn.execute(
+                    "DELETE FROM chunks WHERE chunk_id = ?", (chunk_id,)
+                )
+                count += 1
+        return count
+
     def _upsert(
         self,
         conn: sqlite3.Connection,

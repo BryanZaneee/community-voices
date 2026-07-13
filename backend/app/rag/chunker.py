@@ -2,9 +2,10 @@
 
 Splits at H1/H2 boundaries first (mirrors the section-split pattern from
 Anthropic-course/005_hybrid.ipynb), then within long sections uses a
-~target_tokens sliding window with overlap. Chunk IDs derive from
-(rel_path, start_line, end_line) so the same input always produces the same
-IDs, which keeps re-index diffs surgical.
+~target_tokens sliding window with overlap. Chunk IDs hash
+(rel_path, start_line, end_line, content) so unchanged input always produces
+the same IDs (re-index diffs stay surgical) while an in-place edit — e.g. a
+post's score line drifting between crawls — yields a new ID and re-embeds.
 """
 from __future__ import annotations
 
@@ -165,7 +166,7 @@ def _make_chunk(
     content: str,
     tokens_est: int,
 ) -> Chunk:
-    raw = f"{rel_path}:{start_line}-{end_line}"
+    raw = f"{rel_path}:{start_line}-{end_line}:{content}"
     chunk_id = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
     return Chunk(
         chunk_id=chunk_id,

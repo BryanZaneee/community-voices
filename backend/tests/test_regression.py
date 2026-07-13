@@ -34,7 +34,7 @@ Body paragraph for the golden snapshot.
 - u/b (5 pts): second comment
 """
 
-GOLDEN_IDS = ["032fc22673d5833d", "3adefd7165d2a2db"]
+GOLDEN_IDS = ["444c703f4d00a9eb", "e70339ec0f87c414"]
 
 
 def test_chunk_id_golden_snapshot():
@@ -44,3 +44,16 @@ def test_chunk_id_golden_snapshot():
     re-ingest the committed database and update these IDs."""
     ids = [c.chunk_id for c in chunk_markdown("t3_golden", GOLDEN_DOC)]
     assert ids == GOLDEN_IDS
+
+
+def test_chunk_id_changes_when_content_changes():
+    """Bug: IDs hashed only path+line-range, so an in-place edit (the score
+    meta line drifts on every re-crawl) kept the old ID and the chunk was
+    never re-embedded — text and vector went silently stale."""
+    before = chunk_markdown("t3_x", GOLDEN_DOC)
+    after = chunk_markdown("t3_x", GOLDEN_DOC.replace("100 points", "250 points"))
+    assert (before[0].start_line, before[0].end_line) == (
+        after[0].start_line,
+        after[0].end_line,
+    )
+    assert before[0].chunk_id != after[0].chunk_id

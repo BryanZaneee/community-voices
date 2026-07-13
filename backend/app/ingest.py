@@ -8,8 +8,9 @@ Two sources share one pipeline, both keyless/no-approval-needed:
 
 Flow: listing sweep (paginated) -> parallel comment fetches -> post markdown
 -> chunk -> embed (batched) -> sqlite-vec index -> 2-D projection.
-Idempotent: posts upsert by id and chunk IDs are content-stable, so re-runs
-and overlapping windows only add what's new.
+Idempotent: posts upsert by id and chunk IDs hash position + content, so
+re-runs and overlapping windows only embed what's new or edited, and
+superseded chunks of re-crawled posts are pruned.
 """
 from __future__ import annotations
 
@@ -274,6 +275,29 @@ def ingest_posts(
     for p in posts:
         md = post_to_markdown(p, comments_by_id.get(p["name"], []))
         chunks.extend(chunk_markdown(p["name"], md))
+
+    # Content is part of the chunk ID, so an edited post (score/comment
+    # counts drift between crawls) yields new IDs. Prune the superseded rows
+    # for this run's posts before the skip-existing filter, or every re-crawl
+    # would pile up near-duplicate chunks.
+    if posts:
+        new_ids = {c.chunk_id for c in chunks}
+        ph = ",".join("?" * len(posts))
+        stale = [
+            row["chunk_id"]
+            for row in conn.execute(
+                f"SELECT chunk_id FROM chunks WHERE path IN ({ph})",
+                [p["name"] for p in posts],
+            )
+            if row["chunk_id"] not in new_ids
+        ]
+        if stale:
+            vector_index.delete_chunks(stale)
+            with conn:
+                conn.executemany(
+                    "DELETE FROM retrieval_stats WHERE chunk_id = ?",
+                    [(cid,) for cid in stale],
+                )
 
     # Skip chunks already embedded (stable IDs make re-runs surgical).
     existing = {

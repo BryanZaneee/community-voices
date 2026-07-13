@@ -93,6 +93,25 @@ def test_ingest_is_idempotent(tmp_path):
     assert conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0] == 8
 
 
+def test_reingest_replaces_edited_chunks(tmp_path):
+    """An edited post (e.g. its score drifting between crawls) re-embeds the
+    affected chunk and prunes the superseded one instead of leaving it stale
+    or accumulating near-duplicates."""
+    conn = db.connect(tmp_path / "e.sqlite")
+    vec = VectorIndex(tmp_path / "e.sqlite", dim=DIM)
+    provider = FakeEmbeddingProvider(dim=DIM)
+    posts, comments = make_posts(n=3)
+
+    first = ingest.ingest_posts(conn, "c", posts, comments, provider, vec)
+    posts[0]["score"] += 100  # meta line changes -> that chunk's ID changes
+    second = ingest.ingest_posts(conn, "c", posts, comments, provider, vec)
+
+    assert second["chunks_new"] >= 1
+    n_chunks = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+    assert n_chunks == first["chunks_total"]  # replaced, not duplicated
+    assert len(vec) == n_chunks  # vectors pruned in lockstep
+
+
 def test_ingest_writes_meta_and_pca(tmp_path):
     conn = db.connect(tmp_path / "m.sqlite")
     vec = VectorIndex(tmp_path / "m.sqlite", dim=DIM)
