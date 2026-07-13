@@ -192,6 +192,7 @@ def generate_stream(
                     state["retriever"],
                     week_start=week_start,
                     model_key=model_key,
+                    retrieval_mode=retrieval_mode,
                     progress=progress,
                     on_ready=send_done,
                 )

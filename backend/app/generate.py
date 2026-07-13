@@ -329,6 +329,7 @@ def run_comparison(
     *,
     week_start: str,
     model_key: str,
+    retrieval_mode: RetrievalMode = "hybrid",
     progress: Callable[[str, dict], None] | None = None,
     on_ready: Callable[[int], None] | None = None,
 ) -> tuple[int | None, int]:
@@ -354,6 +355,7 @@ def run_comparison(
         week_start=week_start,
         mode="rag",
         model_key=model_key,
+        retrieval_mode=retrieval_mode,
         progress=progress,
     )
     doc_b = _doc(conn, b_id)
