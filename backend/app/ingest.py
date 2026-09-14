@@ -31,10 +31,10 @@ from app.rag.embeddings import EmbeddingProvider, VoyageEmbeddingProvider
 from app.rag.pca import compute_pca
 from app.rag.vector_index import VectorIndex
 
-LISTING_PAGES = 2          # ~200-post month sweep (lemmy 4 pages x 50, HN 2 x 100)
+LISTING_PAGES = 2          # ~200-post month sweep (volume cap)
 COMMENTS_PER_POST = 12
-MIN_COMMENTS_TO_FETCH = 5  # skip comment requests for low-discussion posts
-TOP_POSTS_PER_WEEK = 30     # only the week's top posts get comment fetches
+MIN_COMMENTS_TO_FETCH = 5  # skip quiet threads
+TOP_POSTS_PER_WEEK = 30     # only top posts get comment fetches
 SELFTEXT_MAX_CHARS = 2000
 COMMENT_MAX_CHARS = 800
 EMBED_BATCH = 64
@@ -79,6 +79,7 @@ def _lemmy_post_to_common(pv: dict) -> dict:
 def fetch_top_posts_lemmy(
     session: requests.Session, community: str, window: str, pages: int
 ) -> list[dict]:
+    # Paginated Lemmy /api/v3/post/list (TopMonth or TopWeek).
     sort = "TopMonth" if window == "month" else "TopWeek"
     posts: list[dict] = []
     for page in range(1, pages + 1):
@@ -203,7 +204,7 @@ def fetch_comments_hn(session: requests.Session, post: dict) -> list[dict]:
 
 
 def select_for_comments(posts: list[dict]) -> list[dict]:
-    """Top posts per trailing 7-day bucket with enough discussion to fetch."""
+    """Volume control: top N posts per week bucket with enough discussion."""
     if not posts:
         return []
     newest = max(p["created_utc"] for p in posts)
@@ -222,6 +223,7 @@ def select_for_comments(posts: list[dict]) -> list[dict]:
 
 
 def post_to_markdown(post: dict, comments: list[dict]) -> str:
+    # One post → markdown doc the chunker will split (title / body / comments).
     created = datetime.fromtimestamp(post["created_utc"], tz=timezone.utc).date()
     flair = post.get("link_flair_text")
     meta = (
@@ -249,7 +251,7 @@ def ingest_posts(
     provider: EmbeddingProvider,
     vector_index: VectorIndex,
 ) -> dict:
-    """Shared upsert -> chunk -> embed -> index path (CLI and live pull)."""
+    """Upsert posts → markdown → chunk → embed new IDs → sqlite-vec (+ PCA)."""
     with conn:
         conn.executemany(
             "INSERT INTO posts(id, title, author, score, num_comments, "
@@ -302,11 +304,13 @@ def ingest_posts(
     new_chunks = [c for c in chunks if c.chunk_id not in existing]
 
     for i in range(0, len(new_chunks), EMBED_BATCH):
+        # Voyage batches of 64; only brand-new chunk IDs hit the API.
         batch = new_chunks[i : i + EMBED_BATCH]
         vectors = provider.embed_documents([c.content for c in batch])
         vector_index.add_documents(zip(batch, vectors))
 
     if new_chunks:
+        # Refresh 2-D map coords for the Embeddings tab.
         payload = compute_pca(
             vector_index, model=provider.model, dim=provider.dim
         )
@@ -338,6 +342,7 @@ def run_ingest(
     source: str = "lemmy",
     reset: bool = False,
 ) -> dict:
+    """Full crawl pipeline: fetch posts/comments → ingest_posts. CLI + live pull."""
     session = requests.Session()
     session.headers["User-Agent"] = config.USER_AGENT
 
@@ -354,6 +359,7 @@ def run_ingest(
     posts = fetch_posts()
     wanting_comments = select_for_comments(posts)
     with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
+        # Parallel comment fetches (volume-capped set only).
         fetched = pool.map(
             lambda p: (p["name"], fetch_one(session, p)),
             wanting_comments,

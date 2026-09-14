@@ -14,8 +14,8 @@ from app.rag.bm25_index import BM25Index
 from app.rag.vector_index import VectorIndex, _load_sqlite_vec
 
 SCHEMA = """
--- Same DDL as app.rag.vector_index (CREATE IF NOT EXISTS on both sides), so
--- the schema is complete even before the first embedding is written.
+-- App tables in the same SQLite file as vec_chunks (owned by vector_index).
+-- posts / retrieval_stats / documents / comparisons / meta.
 CREATE TABLE IF NOT EXISTS chunks (
   chunk_id TEXT PRIMARY KEY,
   rowid INTEGER NOT NULL UNIQUE,
@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 
 
 def connect(db_path: Path | str) -> sqlite3.Connection:
+    # Open community.sqlite, load sqlite-vec, ensure schema + light migrations.
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout = 5000")  # writers vs readers on other conns
@@ -134,11 +135,13 @@ def _migrate_comparisons(conn: sqlite3.Connection) -> None:
 
 
 def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
+    # Read a key/value from meta (community, ingest_report, pca, …).
     row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else None
 
 
 def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
+    # Upsert a meta key (ingest funnel numbers, embedding model, etc.).
     with conn:
         conn.execute(
             "INSERT INTO meta(key, value) VALUES (?, ?) "
@@ -148,9 +151,7 @@ def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
 
 
 def reset_dataset(conn: sqlite3.Connection) -> None:
-    """Wipe everything from a prior ingest before switching sources — posts
-    and chunks carry no per-row source tag (only the global `meta` table
-    tracks the active community), so a clean switch means starting over."""
+    """Wipe corpus + docs when switching ingest source (clean slate)."""
     with conn:
         for table in ("vec_chunks", "chunks", "posts", "retrieval_stats",
                       "documents", "comparisons"):
@@ -161,6 +162,7 @@ def reset_dataset(conn: sqlite3.Connection) -> None:
 
 
 def bump_stats(conn: sqlite3.Connection, chunk_ids: list[str]) -> None:
+    # Increment retrieved_count for each chunk used in a RAG run.
     if not chunk_ids:
         return
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -176,7 +178,7 @@ def bump_stats(conn: sqlite3.Connection, chunk_ids: list[str]) -> None:
 
 
 def build_bm25(conn: sqlite3.Connection) -> BM25Index:
-    """Rebuild the in-memory BM25 index from the chunks table (ms at our scale)."""
+    """Load all chunks into the in-memory BM25 index at startup / after ingest."""
     idx = BM25Index()
     for row in conn.execute(
         "SELECT chunk_id, path, heading_path, start_line, end_line, "
@@ -187,9 +189,7 @@ def build_bm25(conn: sqlite3.Connection) -> BM25Index:
 
 
 def week_windows(conn: sqlite3.Connection) -> list[dict]:
-    """Available [week_start, week_start+7d) windows, newest first, derived
-    from actual post coverage: trailing 7-day windows anchored at the newest
-    post, extended back while windows still contain posts."""
+    """Week picker options: trailing 7-day windows that still have posts."""
     row = conn.execute(
         "SELECT MIN(created_utc) AS lo, MAX(created_utc) AS hi FROM posts"
     ).fetchone()
@@ -228,8 +228,7 @@ def week_windows(conn: sqlite3.Connection) -> list[dict]:
 
 
 def daily_post_counts(conn: sqlite3.Connection, days: int = 14) -> list[dict]:
-    """Posts per UTC day over the trailing `days`, anchored at the newest
-    post (zero-filled) — the sidebar activity mini-chart."""
+    """Sidebar activity chart: posts per day over the trailing window."""
     row = conn.execute("SELECT MAX(created_utc) AS hi FROM posts").fetchone()
     if row["hi"] is None:
         return []
@@ -250,7 +249,7 @@ def daily_post_counts(conn: sqlite3.Connection, days: int = 14) -> list[dict]:
 
 
 def week_totals(conn: sqlite3.Connection, week_start: str) -> dict:
-    """Post and comment totals for one [week_start, week_start+7d) window."""
+    """Post/comment counts for one selected week (status / UI chips)."""
     start = datetime.fromisoformat(week_start).replace(tzinfo=timezone.utc)
     end = start + timedelta(days=7)
     row = conn.execute(
@@ -263,7 +262,7 @@ def week_totals(conn: sqlite3.Connection, week_start: str) -> dict:
 
 
 def posts_in_week(conn: sqlite3.Connection, week_start: str) -> list[sqlite3.Row]:
-    """Posts whose created_utc falls in [week_start, week_start+7d)."""
+    """Posts in [week_start, +7d), used to build allowed_paths for retrieval."""
     start = datetime.fromisoformat(week_start).replace(tzinfo=timezone.utc)
     end = start + timedelta(days=7)
     return conn.execute(

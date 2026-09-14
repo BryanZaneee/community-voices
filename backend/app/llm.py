@@ -23,7 +23,7 @@ class ModelUnavailable(RuntimeError):
 def est_cost_usd(
     model_key: str, input_tokens: float | None, output_tokens: float | None
 ) -> float | None:
-    """USD cost from token counts and the registry's per-MTok prices."""
+    """USD estimate from token counts × registry $/MTok prices (A/B scorecard)."""
     cfg = config.MODELS.get(model_key)
     if cfg is None or input_tokens is None or output_tokens is None:
         return None  # token columns are nullable on old document rows
@@ -34,6 +34,8 @@ def est_cost_usd(
 
 @dataclass(frozen=True)
 class GenResult:
+    """One LLM call outcome: text plus usage for the UI/metrics."""
+
     text: str
     model_key: str
     input_tokens: int
@@ -46,6 +48,7 @@ class GenResult:
 
 
 def _require_key(model_key: str) -> dict:
+    # Look up config.MODELS entry and ensure its API key env var is set.
     cfg = config.MODELS.get(model_key)
     if cfg is None:
         raise ModelUnavailable(f"unknown model: {model_key}")
@@ -90,12 +93,11 @@ def _anthropic_json_schema(json_schema: dict) -> dict:
 def complete(
     model_key: str, system: str, user: str, json_schema: dict | None = None
 ) -> GenResult:
-    """One completion. With json_schema, the response is constrained to that
-    schema (Anthropic structured outputs / DeepSeek JSON mode + schema in
-    system, same pattern as the judge)."""
+    """Write the report (or any structured completion). Routes Anthropic vs DeepSeek."""
     cfg = _require_key(model_key)
     t0 = time.perf_counter()
     if cfg["provider"] == "anthropic":
+        # Claude path: native structured outputs when json_schema is set.
         import anthropic
 
         kwargs = {}
@@ -119,6 +121,7 @@ def complete(
         text = "".join(b.text for b in resp.content if b.type == "text")
         in_tok, out_tok = resp.usage.input_tokens, resp.usage.output_tokens
     else:  # openai_compat (DeepSeek)
+        # DeepSeek path: OpenAI SDK + JSON mode; schema appended to system.
         from openai import OpenAI
 
         kwargs = {}
@@ -155,6 +158,7 @@ def complete(
 
 
 JUDGE_SCHEMA = {
+    # Blind A/B rubric: specificity, evidence, temporal_grounding, usefulness.
     "type": "object",
     "properties": {
         "scores": {
@@ -206,10 +210,7 @@ Do not reveal or guess which document had access to the source material."""
 
 
 def judge_json(doc_a_md: str, doc_b_md: str, reference: str | None = None) -> dict:
-    """Compare two documents blind via DeepSeek JSON mode. With `reference`
-    (the week's real source material) claims are graded against ground truth,
-    so confident fabrication can't win on specificity. Never raises on parse
-    issues — raw text lands in the rationale."""
+    """Blind DeepSeek judge: A=baseline, B=RAG; optional source_material ground truth."""
     cfg = _require_key(config.DEFAULT_MODEL_KEY)
     from openai import OpenAI
 
@@ -219,6 +220,7 @@ def judge_json(doc_a_md: str, doc_b_md: str, reference: str | None = None) -> di
         f"<document_b>\n{doc_b_md}\n</document_b>"
     )
     if reference:
+        # Retrieved chunks from the RAG run, fabrications hurt evidence scores.
         system += JUDGE_REFERENCE_NOTE
         user = f"<source_material>\n{reference}\n</source_material>\n\n" + user
     client = OpenAI(api_key=os.environ[cfg["key_env"]], base_url=cfg["base_url"])
@@ -240,4 +242,5 @@ def judge_json(doc_a_md: str, doc_b_md: str, reference: str | None = None) -> di
     try:
         return json.loads(text)
     except json.JSONDecodeError:
+        # Soft fail: keep raw text so the A/B tab still has something to show.
         return {"scores": None, "winner": "tie", "rationale": text[:2000]}

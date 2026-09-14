@@ -15,6 +15,7 @@ from typing import Callable
 from app import config, db, llm
 from app.rag.retriever import RetrievalMode, Retriever
 
+# Six fixed "facet" searches: covers the week better than one vague query.
 CANONICAL_QUERIES = [
     "biggest most popular posts and highlights this week",
     "debates, disagreements, and controversies",
@@ -23,9 +24,10 @@ CANONICAL_QUERIES = [
     "upcoming events, launches, and announcements",
     "community mood, jokes, and running themes",
 ]
-K_PER_QUERY = 8
-MAX_CONTEXT_CHUNKS = 18
+K_PER_QUERY = 8  # hits kept per facet before dedupe
+MAX_CONTEXT_CHUNKS = 18  # hard budget pasted into the LLM prompt
 
+# Structured JSON the model must return (then we render markdown server-side).
 REPORT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -70,6 +72,7 @@ REPORT_SCHEMA = {
     "additionalProperties": False,
 }
 
+# Shared system prompt for both RAG and baseline generations.
 DOC_SYSTEM = """You write a weekly "Community Voices" report for the online
 community {community}, covering the week of {week_range}.
 
@@ -91,6 +94,7 @@ Write in an engaging, concrete style. Never use em dashes or en dashes
 anywhere in your prose; use commas, colons, periods, or parentheses instead.
 Output JSON only."""
 
+# RAG user message: retrieved passages go in <context>.
 RAG_INSTRUCTIONS = """Ground every claim in the context below; cite post titles
 in *italics* when referencing them. Do not invent posts or events. Base your
 predictions on the momentum you observe in the context.
@@ -99,6 +103,7 @@ predictions on the momentum you observe in the context.
 {context}
 </context>"""
 
+# A/B control: same model + schema, zero retrieval.
 BASELINE_INSTRUCTIONS = """You have NO access to this week's actual discussions.
 Using only your general knowledge of this community and its topic area, write
 your best guess at what was discussed and what comes next. Set share_pct and
@@ -106,8 +111,7 @@ threads to null; you cannot measure them. Do not invent specific post titles
 or exact numbers; be honest, generalities are acceptable."""
 
 def build_markdown(community: str, week_range: str, report: dict) -> str:
-    """Render the structured report as the exported markdown document.
-    Tests pin the "# Community Voices" first line."""
+    """JSON report → exportable markdown (.md / print-to-PDF)."""
     lines = [f"# Community Voices - {community} - Week of {week_range}", ""]
     lines += [f"**{report['headline']}**", "", report["lede"], ""]
     lines.append("## What the community talked about")
@@ -137,6 +141,7 @@ def build_markdown(community: str, week_range: str, report: dict) -> str:
 
 
 def week_paths(conn: sqlite3.Connection, week_start: str) -> set[str]:
+    # Post IDs in this week, fed to retriever as allowed_paths.
     return {row["id"] for row in db.posts_in_week(conn, week_start)}
 
 
@@ -146,7 +151,7 @@ def retrieve_context(
     week_start: str,
     mode: RetrievalMode = "hybrid",
 ) -> tuple[list, dict]:
-    """Facet-query retrieval scoped to one week. Returns (chunks, meta)."""
+    """Run all facet queries, dedupe by best RRF score, keep top 18, bump stats."""
     if mode in ("hybrid", "vector") and retriever.embedding is None:
         mode = "bm25"  # record the mode that actually ran
     allowed = week_paths(conn, week_start)
@@ -163,7 +168,7 @@ def retrieve_context(
                 best[r.chunk.chunk_id] = (r.score, r.chunk)
     ranked = sorted(best.values(), key=lambda t: -t[0])[:MAX_CONTEXT_CHUNKS]
     chunks = [chunk for _, chunk in ranked]
-    db.bump_stats(conn, [c.chunk_id for c in chunks])
+    db.bump_stats(conn, [c.chunk_id for c in chunks])  # Embeddings tab heat
     retrieval_ms = round(
         sum(t["embed_ms"] + t["bm25_ms"] + t["vector_ms"] for t in timings), 1
     )
@@ -171,6 +176,7 @@ def retrieve_context(
 
 
 def _post_meta(conn: sqlite3.Connection, post_ids: set[str]) -> dict[str, sqlite3.Row]:
+    # Lookup titles/scores so context headers are human-readable for the LLM.
     if not post_ids:
         return {}
     ph = ",".join("?" * len(post_ids))
@@ -179,6 +185,7 @@ def _post_meta(conn: sqlite3.Connection, post_ids: set[str]) -> dict[str, sqlite
 
 
 def _context_block(conn: sqlite3.Connection, chunks: list) -> str:
+    # Format retrieved passages into the <context> string for RAG_INSTRUCTIONS.
     posts = _post_meta(conn, {c.path for c in chunks})
     parts = []
     for c in chunks:
@@ -202,10 +209,9 @@ def generate_document(
     retrieval_mode: RetrievalMode = "hybrid",
     progress: Callable[[str, dict], None] | None = None,
 ) -> int:
-    """Generate one document, store it, return documents.id.
+    """One report: retrieve (if rag) → LLM JSON → markdown → INSERT documents.
 
-    `progress(stage, info)` is called around the retrieve and write stages
-    (used by the SSE endpoint); it must not raise."""
+    `progress(stage, info)` drives the SSE pipeline UI; it must not raise."""
     emit = progress or (lambda stage, info: None)
     community = db.get_meta(conn, "community") or config.DEFAULT_COMMUNITY
     week_end = (
@@ -218,6 +224,7 @@ def generate_document(
     chunks: list = []
     meta: dict = {}
     if mode == "rag":
+        # RAG path: retrieve week-scoped context, then ground the prompt.
         emit("retrieve", {"status": "start", "week_start": week_start})
         chunks, meta = retrieve_context(conn, retriever, week_start, retrieval_mode)
         if not chunks:
@@ -236,11 +243,13 @@ def generate_document(
         )
         user = RAG_INSTRUCTIONS.format(context=_context_block(conn, chunks))
     else:
+        # Baseline path: no retrieval, parametric knowledge only.
         user = BASELINE_INSTRUCTIONS
 
     emit("write", {"status": "start", "model_key": model_key})
     report_json = None
     for _attempt in range(2):
+        # Ask the model for REPORT_SCHEMA JSON; retry once if parse fails.
         result = llm.complete(model_key, system, user, json_schema=REPORT_SCHEMA)
         try:
             report = json.loads(result.text)
@@ -262,6 +271,7 @@ def generate_document(
     )
 
     with conn:
+        # Persist audit trail: mode, queries, chunk ids, latency, tokens.
         cur = conn.execute(
             "INSERT INTO documents (mode, model_key, week_start, community, "
             "  content_md, report_json, queries, retrieved_chunk_ids, "
@@ -290,6 +300,7 @@ def _doc(conn: sqlite3.Connection, doc_id: int) -> sqlite3.Row:
 
 
 def _predictions_detail(doc_b: sqlite3.Row) -> str:
+    # SSE "predict" stage blurb from the RAG doc's forecasts.
     try:
         preds = json.loads(doc_b["report_json"])["predictions"]
         avg = round(sum(p["confidence"] for p in preds) / len(preds))
@@ -299,8 +310,7 @@ def _predictions_detail(doc_b: sqlite3.Row) -> str:
 
 
 def _reference_block(conn: sqlite3.Connection, doc_b: sqlite3.Row) -> str | None:
-    """The RAG doc's actual retrieved chunks, formatted like its prompt
-    context — ground truth for the judge to grade both docs against."""
+    """RAG doc's retrieved chunks → ground truth for the blind judge."""
     ids = json.loads(doc_b["retrieved_chunk_ids"] or "null") or []
     if not ids:
         return None
@@ -313,6 +323,7 @@ def _reference_block(conn: sqlite3.Connection, doc_b: sqlite3.Row) -> str | None
 
 
 def _judge_detail(judge: dict) -> str:
+    # SSE "evaluate" stage blurb from judge_json scores.
     winner = {"a": "baseline", "b": "RAG"}.get(judge.get("winner"), "tie")
     scores = judge.get("scores")
     if not scores:
@@ -333,14 +344,10 @@ def run_comparison(
     progress: Callable[[str, dict], None] | None = None,
     on_ready: Callable[[int], None] | None = None,
 ) -> tuple[int | None, int]:
-    """RAG-vs-baseline: generate both sides + judge, store, return
-    (comparison id, RAG doc id). A = baseline (no RAG), B = RAG — same model.
+    """A/B: RAG doc (B) → baseline (A) → blind judge → store comparisons row.
 
-    The RAG doc is generated first; if the baseline or judge then fails, no
-    comparison row is stored and the id comes back None — the caller still
-    has a finished report to show. `on_ready(rag_doc_id)` fires once as soon
-    as the report is deliverable (both drafts done, judge still deciding) so
-    the SSE endpoint can hand the report over while judging continues."""
+    Returns (comparison_id | None, rag_doc_id). `on_ready` fires once both
+    drafts exist so SSE can show the report while judging finishes."""
     emit = progress or (lambda stage, info: None)
     ready_sent = False
 
@@ -349,6 +356,7 @@ def run_comparison(
         if on_ready and not ready_sent:
             ready_sent = True
             on_ready(b_id)
+    # 1) RAG report first, always keep this even if A/B fails later.
     b_id = generate_document(
         conn,
         retriever,
@@ -373,6 +381,7 @@ def run_comparison(
                                   f"{info.get('output_tokens')} tok"})
 
     try:
+        # 2) Same model, no context, the A/B control.
         a_id = generate_document(
             conn,
             retriever,
@@ -386,6 +395,7 @@ def run_comparison(
         emit("evaluate", {"status": "start",
                           "detail": "blind judge · 4 criteria · graded "
                                     "against the week's source material"})
+        # 3) Blind DeepSeek judge grades both against RAG's retrieved sources.
         judge = llm.judge_json(
             doc_a["content_md"],
             doc_b["content_md"],

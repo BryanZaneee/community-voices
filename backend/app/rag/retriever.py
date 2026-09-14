@@ -21,12 +21,16 @@ RetrievalMode = Literal["hybrid", "vector", "bm25"]
 
 @dataclass(frozen=True)
 class RetrievalResult:
+    """One fused hit: chunk + RRF score (higher = better)."""
+
     chunk: Chunk
     score: float
 
 
 @dataclass(frozen=True)
 class RetrievalSignals:
+    """Debug/telemetry bundle: both legs + fusion + timings."""
+
     query_embedding: list[float] | None
     bm25_results: list[tuple[Chunk, float]]
     vector_results: list[tuple[Chunk, float]]
@@ -35,6 +39,8 @@ class RetrievalSignals:
 
 
 class Retriever:
+    """Orchestrates BM25 + vector search, then RRF-fuses the ranked lists."""
+
     def __init__(
         self,
         *,
@@ -55,6 +61,7 @@ class Retriever:
         allowed_paths: set[str] | None = None,
         k_rrf: int = DEFAULT_RRF_K,
     ) -> list[RetrievalResult]:
+        # Convenience: return only the fused top-k.
         return self.search_with_signals(
             query, k=k, mode=mode, allowed_paths=allowed_paths, k_rrf=k_rrf
         ).fused
@@ -68,6 +75,7 @@ class Retriever:
         allowed_paths: set[str] | None = None,
         k_rrf: int = DEFAULT_RRF_K,
     ) -> RetrievalSignals:
+        # Full pipeline: optional BM25 leg → optional vector leg → week filter → RRF.
         if not isinstance(query, str) or not query.strip():
             raise ValueError("query must be a non-empty string")
         if mode in ("hybrid", "vector") and self.embedding is None:
@@ -96,6 +104,7 @@ class Retriever:
             vector_ms = round((time.perf_counter() - t0) * 1000, 1)
 
         if allowed_paths is not None:
+            # Week scope: keep only chunks whose path (post id) is in this week.
             bm25_results = [r for r in bm25_results if r[0].path in allowed_paths]
             vector_results = [r for r in vector_results if r[0].path in allowed_paths]
 
@@ -125,12 +134,13 @@ def reciprocal_rank_fusion(
     k: int = 5,
     k_rrf: int = DEFAULT_RRF_K,
 ) -> list[RetrievalResult]:
-    """Fuse ranked sparse and dense results using Reciprocal Rank Fusion."""
+    """Merge two ranked lists by rank only: score += 1/(k_rrf + rank)."""
     scores: dict[str, float] = {}
     chunks: dict[str, Chunk] = {}
     for results in (bm25_results, vector_results):
         for rank, (chunk, _raw) in enumerate(results, start=1):
             chunks[chunk.chunk_id] = chunk
+            # Ignore raw BM25/vector scores, ranks fuse without unit conversion.
             scores[chunk.chunk_id] = scores.get(chunk.chunk_id, 0.0) + 1.0 / (
                 k_rrf + rank
             )

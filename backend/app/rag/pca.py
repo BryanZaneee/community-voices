@@ -104,9 +104,7 @@ def compute_pca(
     model: str,
     dim: int,
 ) -> dict | None:
-    """Project all chunk embeddings to 2-D with cluster assignments.
-    Returns a JSON-able payload (stored in the meta table) or None when
-    there is too little data. (Name kept from the PCA-only era.)"""
+    """Flatten embeddings to 2-D (UMAP, else PCA) + k-means clusters for the map."""
     import numpy as np
 
     pairs = vector_index.all_embeddings()
@@ -118,6 +116,7 @@ def compute_pca(
     try:
         import umap  # optional: pip install umap-learn
 
+        # Preferred: UMAP preserves local neighborhoods better for topic blobs.
         coords = umap.UMAP(
             n_components=2,
             n_neighbors=min(15, len(pairs) - 1),
@@ -128,13 +127,14 @@ def compute_pca(
         coords = np.asarray(coords, dtype=float)
         method = "umap"
     except ImportError:
+        # Fallback: plain PCA via SVD, no extra dependency.
         mean = X.mean(axis=0)
         _, _, vt = np.linalg.svd(X - mean, full_matrices=False)
         coords = (X - mean) @ vt[:2].T
 
     chunks = [chunk for chunk, _ in pairs]
     k = min(6, max(2, len(chunks) // 25))
-    labels = _kmeans(coords, k)
+    labels = _kmeans(coords, k)  # color groups on the Embeddings tab
     clusters = _cluster_meta(chunks, labels, k)
 
     points = []

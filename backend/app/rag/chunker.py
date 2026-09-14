@@ -40,7 +40,7 @@ def chunk_markdown(
     target_tokens: int = DEFAULT_TARGET_TOKENS,
     overlap_tokens: int = DEFAULT_OVERLAP_TOKENS,
 ) -> list[Chunk]:
-    """Chunk a markdown document into stable, overlapping passages."""
+    """Public entry: markdown → list of Chunks (headings first, then windows)."""
     if not text.strip():
         return []
     lines = text.splitlines()
@@ -63,6 +63,7 @@ def chunk_markdown(
 def _split_by_h1_h2(
     lines: list[str],
 ) -> list[tuple[tuple[str, ...], int, list[str]]]:
+    # Anthropic-course style: cut the doc into H1/H2 sections first.
     sections: list[tuple[tuple[str, ...], int, list[str]]] = []
     current_h1: str | None = None
     current_heading: tuple[str, ...] = ()
@@ -107,6 +108,7 @@ def _chunk_section(
     target_tokens: int,
     overlap_tokens: int,
 ) -> list[Chunk]:
+    # One section → one chunk if short; else sliding ~400-token windows + overlap.
     if not sec_lines:
         return []
     per_line = [_estimate_tokens(line) for line in sec_lines]
@@ -166,6 +168,7 @@ def _make_chunk(
     content: str,
     tokens_est: int,
 ) -> Chunk:
+    # Stable ID = hash(path + lines + content); unchanged text → skip re-embed.
     raw = f"{rel_path}:{start_line}-{end_line}:{content}"
     chunk_id = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
     return Chunk(

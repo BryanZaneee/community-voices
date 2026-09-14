@@ -33,6 +33,7 @@ write_lock = threading.Lock()
 
 
 def _build_retriever(conn: sqlite3.Connection, vector_index: VectorIndex) -> Retriever:
+    # Wire BM25 + optional Voyage + vector index into one Retriever.
     provider = None
     if os.environ.get("VOYAGE_API_KEY"):
         provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
@@ -45,6 +46,7 @@ def _build_retriever(conn: sqlite3.Connection, vector_index: VectorIndex) -> Ret
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # App boot: open DB, vector index, build retriever; tear down on shutdown.
     conn = db.connect(config.DB_PATH)
     vector_index = VectorIndex(config.DB_PATH, dim=config.EMBEDDING_DIM)
     vector_index.ensure_schema()
@@ -83,6 +85,7 @@ def read_conn():
 
 @app.get("/api/status")
 def status(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
+    # Sidebar bootstrap: weeks, models, hybrid flag, ingest funnel stats.
     weeks = db.week_windows(conn)
     ingest_report = db.get_meta(conn, "ingest_report")
     return {
@@ -123,6 +126,7 @@ class GenerateBody(BaseModel):
 
 @app.post("/api/generate")
 def generate_endpoint(body: GenerateBody) -> dict:
+    # Non-streaming generate (JSON). Prefer /generate/stream for the UI.
     with write_lock:
         try:
             doc_id = generate.generate_document(
@@ -143,12 +147,12 @@ def generate_endpoint(body: GenerateBody) -> dict:
 
 
 def _sse(event: str, data: dict) -> str:
+    # One Server-Sent Event frame for the Report tab pipeline animation.
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
 def _cached_stage_events(conn: sqlite3.Connection, week_start: str) -> list[str]:
-    """The crawl/reduce/embed stages ran at ingest time — report their real
-    cached facts instantly so the pipeline UI stays honest."""
+    """Replay crawl/reduce/embed facts from ingest when we skip a live pull."""
     week = next(
         (w for w in db.week_windows(conn) if w["week_start"] == week_start), None
     )
@@ -180,9 +184,7 @@ def _pulled_recently(conn: sqlite3.Connection) -> bool:
 
 
 def _live_pull(conn: sqlite3.Connection, progress) -> None:
-    """Trailing-7-day ingest of the active source before a RAG run, so the
-    report always sees the freshest posts (same pipeline as /api/ingest/week).
-    Emits real crawl/reduce/embed stage events in place of the cached ones."""
+    """Optional pre-report week crawl so generate uses fresh posts."""
     source = db.get_meta(conn, "source") or "lemmy"
     community = (
         db.get_meta(conn, "community") or config.DEFAULT_COMMUNITY
@@ -215,12 +217,11 @@ def generate_stream(
     mode: Literal["rag", "baseline"] = "rag",
     retrieval_mode: RetrievalMode = "hybrid",
 ) -> StreamingResponse:
-    """SSE variant of /api/generate: stage events, then `done` with the Doc.
-
-    With a Voyage key, a RAG run starts with a live trailing-7-day pull so
-    the model writes from up-to-date data — skipped when the corpus was
-    ingested within the last 12 hours. Keyless runs use the stored corpus
-    and replay the ingest-time stage numbers."""
+    """SSE Report tab: live pull (optional), run_comparison, stage events."""
+    # With a Voyage key, a RAG run starts with a live trailing-7-day pull so
+    # the model writes from up-to-date data, skipped when the corpus was
+    # ingested within the last 12 hours. Keyless runs use the stored corpus
+    # and replay the ingest-time stage numbers.
     conn = state["conn"]
     live = (
         mode == "rag"
@@ -320,7 +321,7 @@ class CompareBody(BaseModel):
 
 @app.post("/api/compare")
 def compare_endpoint(body: CompareBody) -> dict:
-    """RAG vs baseline — the only comparison kind."""
+    """A/B tab standalone: RAG vs baseline + judge (no SSE)."""
     with write_lock:
         try:
             comp_id, _ = generate.run_comparison(
@@ -339,6 +340,7 @@ def compare_endpoint(body: CompareBody) -> dict:
 
 
 def _comparison(comp_id: int, conn: sqlite3.Connection) -> dict:
+    # Pack both docs + judge JSON for the A/B tab.
     row = conn.execute(
         "SELECT * FROM comparisons WHERE id = ?", (comp_id,)
     ).fetchone()
@@ -424,6 +426,7 @@ def download_document(
 
 @app.post("/api/ingest/week")
 def ingest_week() -> dict:
+    # Ingest tab "Run now": trailing 7-day pull of the active source.
     if not os.environ.get("VOYAGE_API_KEY"):
         raise HTTPException(400, "Live pull requires VOYAGE_API_KEY in .env")
     with write_lock:
@@ -446,10 +449,7 @@ class SwitchSourceBody(BaseModel):
 
 @app.post("/api/ingest/source")
 def ingest_source(body: SwitchSourceBody) -> dict:
-    """Switch the active community/site: does a fresh month-window ingest
-    for the chosen source, wiping the old dataset (posts/chunks carry no
-    per-row source tag — see db.reset_dataset) only after the new crawl
-    succeeds, so a failed crawl leaves the current dataset intact."""
+    """Sidebar source switcher: wipe + month ingest for Lemmy/HN target."""
     if not os.environ.get("VOYAGE_API_KEY"):
         raise HTTPException(400, "Switching sources requires VOYAGE_API_KEY in .env")
     src = next((s for s in config.SOURCES if s["key"] == body.source_key), None)
@@ -468,6 +468,7 @@ def ingest_source(body: SwitchSourceBody) -> dict:
 
 @app.get("/api/embeddings")
 def embeddings(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
+    # Embeddings tab: 2-D points + retrieval heat + week labels.
     pca_raw = db.get_meta(conn, "pca")
     if not pca_raw:
         return {"points": []}
@@ -522,6 +523,7 @@ def embeddings(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
 
 @app.get("/api/stats")
 def stats(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
+    # Most-retrieved chunks leaderboard (Embeddings tab).
     totals = conn.execute(
         "SELECT COALESCE(SUM(retrieved_count), 0) AS total, "
         "COUNT(*) AS chunks_retrieved FROM retrieval_stats"
