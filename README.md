@@ -2,11 +2,11 @@
 
 [![tests](https://github.com/BryanZaneee/community-voices/actions/workflows/tests.yml/badge.svg)](https://github.com/BryanZaneee/community-voices/actions/workflows/tests.yml)
 
-A full-stack RAG application that listens to a gaming community and writes a
-weekly **Community Voices Document**: what the community talked about, the
-standout threads, and what it will talk about next week. Every claim is
-grounded in the community's actual posts via retrieval-augmented generation,
-with built-in A/B testing of the whole idea.
+Analyzes a week of community discussion and produces a grounded digest with
+predictions: what the community talked about, the standout threads, and what
+it will talk about next week. Retrieval is hybrid RAG over sqlite-vec and
+BM25, so every claim traces back to a real post, and the app A/B tests itself
+against the same model writing with no retrieval at all.
 
 The default community is **c/games on lemmy.world**, the fediverse's largest
 gaming community, chosen deliberately: its API is public by design, so anyone
@@ -200,7 +200,7 @@ search API instead; the in-app source switcher drives the same registry via
    clusters are recomputed. The run's funnel numbers persist to the meta
    table and feed the Ingestion tab.
 
-Handling "overly large amounts of data": ~200-post cap per month, comment
+Volume control: ~200-post cap per month, comment
 fetches only where there's real discussion, 12 comments/post, and per-field
 truncation. A month lands in the mid-hundreds of chunks (this repo's committed
 month: 453). Re-runs are idempotent: content-hashed chunk IDs mean overlapping
@@ -225,7 +225,7 @@ the Voyage embedding API rather than SQLite.
 ## Development
 
 The served frontend is a pre-built SPA (`frontend/dist/`, committed on
-purpose so evaluators skip Node). To hack on it:
+purpose so running the app needs no Node). To hack on it:
 
 ```bash
 cd backend && .venv/bin/uvicorn app.main:app --reload   # API on :8000
@@ -262,6 +262,13 @@ Four layers, run in CI on every push:
 - **Regression**: pins bugs fixed during development (week-boundary
   alignment) plus a golden chunk-ID snapshot protecting the committed vector
   store.
+
+## Contributing
+
+Branch naming, commit style, and the PR checklist live in
+[CONTRIBUTING.md](CONTRIBUTING.md). Before opening a PR, run the suite above
+from `backend/`. Never commit `.env` or a regenerated `data/community.sqlite`
+unless the ingest change is the point of the PR.
 
 ## License
 

@@ -1,0 +1,10 @@
+
+
+# <type>(<scope>): <subject>            <-- 50 chars, imperative, no period
+#
+# Body: WHY, not what. Wrap at 72.     <-- blank line above is required
+#
+# Closes #
+#
+# type: feat fix refactor chore docs test perf build ci
+# breaking: feat(api)!: ...  + a "BREAKING CHANGE:" footer
