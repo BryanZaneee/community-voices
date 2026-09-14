@@ -401,3 +401,151 @@ def test_reddit_is_a_registered_source():
 
     src = next(s for s in config.SOURCES if s["kind"] == "reddit")
     assert src["community"] and src["key"] == "reddit:games"
+
+
+# --------------------------------------------------------------------- x ----
+
+X_TWEET = {
+    "id": "1900000000000000001",
+    "text": "Steam Machine pricing announced and the replies are already on fire",
+    "author_id": "u1",
+    "conversation_id": "1900000000000000001",
+    "created_at": "2026-07-01T12:30:00.000Z",
+    "public_metrics": {"like_count": 700, "retweet_count": 19, "reply_count": 537},
+}
+X_USERS = {"u1": "someone"}
+
+
+def test_x_to_common():
+    p = ingest._x_to_common(X_TWEET, X_USERS)
+    assert p["name"] == "x_1900000000000000001"
+    assert p["author"] == "someone"
+    # X has no score; likes + reposts is the ranking analogue
+    assert p["score"] == 719
+    assert p["num_comments"] == 537
+    assert p["selftext"] == X_TWEET["text"]
+    assert p["title"] == X_TWEET["text"]  # short enough to survive the 120 cap
+    assert p["permalink"] == (
+        "https://x.com/someone/status/1900000000000000001"
+    )
+    assert abs(p["created_utc"] - 1782909000.0) < 86400  # sane epoch, mid-2026
+
+
+def test_x_to_common_defaults_and_title_truncation():
+    tweet = {
+        "id": "2",
+        "text": "z" * 300,
+        "author_id": "missing",
+        "created_at": "2026-07-01T12:30:00.000Z",
+    }
+    p = ingest._x_to_common(tweet, {})
+    assert p["score"] == 0 and p["num_comments"] == 0
+    assert p["author"] == "?"  # author_id absent from the expansions block
+    assert len(p["title"]) == 120
+    assert p["_x_conversation_id"] == "2"  # falls back to the tweet id
+
+
+def test_fetch_top_posts_x_paginates_on_next_token(monkeypatch):
+    pages = [
+        {
+            "data": [dict(X_TWEET, id=f"a{i}") for i in range(3)],
+            "includes": {"users": [{"id": "u1", "username": "someone"}]},
+            "meta": {"next_token": "page2"},
+        },
+        {
+            "data": [dict(X_TWEET, id="b0")],
+            "includes": {"users": [{"id": "u1", "username": "someone"}]},
+            "meta": {},
+        },
+    ]
+    seen = []
+
+    def fake_get(session, url, **params):
+        seen.append((url, params))
+        return pages[len(seen) - 1]
+
+    monkeypatch.setattr(ingest, "_get_json", fake_get)
+    posts = ingest.fetch_top_posts_x(object(), "#gaming", "week", pages=5)
+    assert [p["name"] for p in posts] == ["x_a0", "x_a1", "x_a2", "x_b0"]
+    assert seen[0][0].endswith("/tweets/search/recent")
+    assert seen[0][1]["query"] == "#gaming" and "next_token" not in seen[0][1]
+    assert seen[1][1]["next_token"] == "page2"
+    assert len(seen) == 2  # stops when meta.next_token is absent
+
+
+def test_fetch_comments_x_queries_conversation_and_caps(monkeypatch):
+    replies = [
+        dict(X_TWEET, id=str(i), text=f"reply {i}", public_metrics={"like_count": i})
+        for i in range(ingest.COMMENTS_PER_POST + 5)
+    ]
+    replies.append(dict(X_TWEET, id="blank", text="   "))  # whitespace only
+    seen = {}
+
+    def fake_get(session, url, **params):
+        seen.update(params)
+        return {
+            "data": replies,
+            "includes": {"users": [{"id": "u1", "username": "someone"}]},
+        }
+
+    monkeypatch.setattr(ingest, "_get_json", fake_get)
+    out = ingest.fetch_comments_x(object(), {"_x_conversation_id": "999"})
+    assert "conversation_id:999" in seen["query"] and "is:reply" in seen["query"]
+    assert len(out) == ingest.COMMENTS_PER_POST
+    assert all(c["author"] == "someone" for c in out)
+
+
+def test_fetch_comments_x_swallows_errors(monkeypatch):
+    def boom(session, url, **params):
+        raise RuntimeError("429 Too Many Requests")
+
+    monkeypatch.setattr(ingest, "_get_json", boom)
+    assert ingest.fetch_comments_x(object(), {"_x_conversation_id": "1"}) == []
+
+
+def test_x_session_requires_a_bearer_token(monkeypatch):
+    import pytest
+    import requests
+
+    monkeypatch.delenv("X_BEARER_TOKEN", raising=False)
+    with pytest.raises(RuntimeError, match="X_BEARER_TOKEN"):
+        ingest.x_session(requests.Session())
+
+    monkeypatch.setenv("X_BEARER_TOKEN", "tok")
+    s = ingest.x_session(requests.Session())
+    assert s.headers["Authorization"] == "Bearer tok"
+
+
+def test_run_ingest_x_dispatch(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "x.sqlite")
+    vec = VectorIndex(tmp_path / "x.sqlite", dim=DIM)
+    posts, comments = make_posts(n=4)
+    monkeypatch.setenv("X_BEARER_TOKEN", "tok")
+    monkeypatch.setattr(ingest, "fetch_top_posts_x", lambda s, q, w, p: posts)
+    monkeypatch.setattr(ingest, "fetch_comments_x", lambda s, p: comments[p["name"]])
+    report = ingest.run_ingest(
+        conn, vec, FakeEmbeddingProvider(dim=DIM), "#gaming", source="x"
+    )
+    assert report["posts"] == 4
+    assert db.get_meta(conn, "source") == "x"
+    assert db.get_meta(conn, "community") == "X: #gaming"
+
+
+def test_run_ingest_x_falls_back_to_x_query_env(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "xq.sqlite")
+    vec = VectorIndex(tmp_path / "xq.sqlite", dim=DIM)
+    posts, comments = make_posts(n=2)
+    monkeypatch.setenv("X_BEARER_TOKEN", "tok")
+    monkeypatch.setenv("X_QUERY", "#indiedev")
+    monkeypatch.setattr(ingest, "fetch_top_posts_x", lambda s, q, w, p: posts)
+    monkeypatch.setattr(ingest, "fetch_comments_x", lambda s, p: comments[p["name"]])
+    ingest.run_ingest(conn, vec, FakeEmbeddingProvider(dim=DIM), "", source="x")
+    assert db.get_meta(conn, "community") == "X: #indiedev"
+
+
+def test_x_is_a_registered_source():
+    from app import config
+
+    src = next(s for s in config.SOURCES if s["kind"] == "x")
+    assert src["key"] == "x:search"
+    assert src["community"] == ""  # query resolves in run_ingest

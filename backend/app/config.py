@@ -85,6 +85,9 @@ SOURCES: list[dict] = [
     {"key": "lemmy:asklemmy", "kind": "lemmy", "community": "asklemmy", "label": "c/asklemmy (Lemmy)"},
     {"key": "hackernews", "kind": "hackernews", "label": "Hacker News"},
     {"key": "reddit:games", "kind": "reddit", "community": "games", "label": "r/games (Reddit)"},
+    # Needs X_BEARER_TOKEN and a paid X API tier; see README. An empty
+    # community lets ingest resolve the query from X_QUERY or its default.
+    {"key": "x:search", "kind": "x", "community": "", "label": "X (recent search)"},
 ]
 
 

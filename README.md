@@ -16,7 +16,8 @@ account. Reddit's 2026 Data API gate blocks unauthenticated `.json`/RSS
 access, so nobody cloning this repo could reproduce the ingest. There is a
 Reddit source anyway, behind credentials: see **Reddit** below.) A sidebar
 source switcher can wipe and re-ingest the dataset from other sources:
-c/technology, c/asklemmy, Hacker News (Algolia search API), or r/games.
+c/technology, c/asklemmy, Hacker News (Algolia search API), r/games, or X
+(see **X** below, which needs a paid API tier).
 
 ![Report tab](docs/report-tab.png)
 
@@ -243,6 +244,46 @@ credentials were available.
 
 Rate limiting reuses the shared `_get_json` retry: one 10-second sleep on a
 429 or 5xx, then a single retry.
+### X
+
+`.venv/bin/python -m app.ingest "#gaming -is:retweet" --source x --window week`
+crawls X API v2 recent search and reuses the same chunker, embedder, and
+idempotent upsert as the other sources. The positional argument is the search
+query rather than a community name; `X_QUERY` supplies it for the sidebar
+entry, and the default is `#gaming -is:retweet -is:reply lang:en`. Replies
+are fetched as a second recent search on each post's `conversation_id`.
+
+**The free tier cannot run this.** X API v2 recent search is not included in
+the free tier, which is write-only (posting, no search read). **Basic or
+above is required**, and recent search on any tier reaches back **7 days
+only**, so `--window month` silently returns the week and nothing more. The
+full-archive endpoint that would cover a month sits behind a separate, higher
+access tier and is not implemented here.
+
+**No live fetch was made and no X data was ingested.** No bearer token was
+available. Verified on 2026-09-14, unauthenticated:
+
+```
+GET https://api.x.com/2/tweets/search/recent?query=%23gaming
+HTTP 401  {"title": "Unauthorized", "status": 401, "detail": "Unauthorized"}
+```
+
+Without a token `x_session` raises before any request, by design: a
+credential-gated source should fail loudly rather than return an empty week
+that looks like a quiet community. So this adapter is **stub-tested only**.
+The mapper, both fetch functions, pagination on `meta.next_token`, the
+conversation-id reply search, and the dispatch are covered in
+`backend/tests/test_ingest_unit.py` against recorded v2 payload shapes. What
+is not covered, and cannot be until someone supplies a token: whether a real
+query returns enough posts per week to make a useful digest, and whether the
+rate limits allow one reply search per selected post.
+
+That last one is the known ceiling. X rate-limits per 15-minute window; the
+shared `_get_json` retry sleeps 10 seconds once and retries once, which is
+tuned for Lemmy and HN. A wide query fanning out to 30 reply searches can
+exhaust a Basic-tier window. The `ponytail:` comment in `run_ingest` marks
+the spot; the fix is backoff driven by the `x-rate-limit-reset` header, and
+it is not worth writing before anyone has run it once for real.
 
 Because re-runs are idempotent, unattended weekly ingestion is one cron line:
 
