@@ -84,6 +84,7 @@ SOURCES: list[dict] = [
     {"key": "lemmy:technology", "kind": "lemmy", "community": "technology", "label": "c/technology (Lemmy)"},
     {"key": "lemmy:asklemmy", "kind": "lemmy", "community": "asklemmy", "label": "c/asklemmy (Lemmy)"},
     {"key": "hackernews", "kind": "hackernews", "label": "Hacker News"},
+    {"key": "reddit:games", "kind": "reddit", "community": "games", "label": "r/games (Reddit)"},
 ]
 
 
