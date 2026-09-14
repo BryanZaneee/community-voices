@@ -28,6 +28,8 @@ def _tokenize(text: str) -> list[str]:
 
 
 class BM25Index:
+    """In-memory keyword index over chunks (our code; rebuilt at startup)."""
+
     def __init__(self) -> None:
         self.chunks: list[Chunk] = []
         self._doc_counts: list[Counter[str]] = []
@@ -38,6 +40,7 @@ class BM25Index:
         self._index_built: bool = False
 
     def add(self, chunk: Chunk) -> None:
+        # Register one chunk; IDF is recomputed lazily on next search.
         if not isinstance(chunk, Chunk):
             raise TypeError("chunk must be a Chunk.")
         tokens = _tokenize(chunk.content)
@@ -50,6 +53,7 @@ class BM25Index:
         self._index_built = False
 
     def _build_index(self) -> None:
+        # Precompute avg doc length + IDF for every term in the corpus.
         if not self.chunks:
             self._avg_doc_len = 0.0
             self._idf = {}
@@ -64,6 +68,7 @@ class BM25Index:
         self._index_built = True
 
     def _score(self, query_tokens: list[str], doc_index: int) -> float:
+        # Classic BM25: rare query terms + high TF in shorter docs score higher.
         score = 0.0
         counts = self._doc_counts[doc_index]
         doc_len = self._doc_len[doc_index]
@@ -78,6 +83,8 @@ class BM25Index:
         return score
 
     def search(self, query_text: str, k: int = 5) -> list[tuple[Chunk, float]]:
+        # Top-k keyword hits. Returns (chunk, distance): lower distance = better
+        # so RRF can treat BM25 like vector distance without sign juggling.
         if not self.chunks:
             return []
         if k <= 0:

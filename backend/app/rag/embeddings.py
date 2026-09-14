@@ -14,6 +14,8 @@ class EmbeddingProviderError(RuntimeError):
 
 
 class EmbeddingProvider(Protocol):
+    """Common interface: ingest uses embed_documents; search uses embed_query."""
+
     backend: str
     model: str
     dim: int
@@ -44,6 +46,7 @@ class FakeEmbeddingProvider:
         return self._embed(text)
 
     def _embed(self, text: str) -> list[float]:
+        # Hash tokens into a fixed vector, no API; enough for offline tests.
         vec = [0.0] * self.dim
         tokens = _TOKEN_RE.findall(str(text).lower())
         if not tokens:
@@ -64,6 +67,8 @@ _VOYAGE_DIMS = {
 
 
 class VoyageEmbeddingProvider:
+    """Real embeddings via Voyage API (voyage-3-large → 1024-dim)."""
+
     backend = "voyage"
 
     def __init__(
@@ -90,15 +95,15 @@ class VoyageEmbeddingProvider:
         self._client = voyageai.Client(api_key=self._api_key)
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        # Ingest path: mark texts as documents for Voyage's asymmetric models.
         return self._embed(texts, input_type="document")
 
     def embed_query(self, text: str) -> list[float]:
+        # Search path: one query vector to KNN against stored document vectors.
         return self._embed([text], input_type="query")[0]
 
     def _embed(self, texts: list[str], *, input_type: str) -> list[list[float]]:
-        # Retry with exponential backoff on rate-limit errors. The Voyage free
-        # tier allows only 3 requests/min and 10K tokens/min, so a full ingest
-        # can outrun the window and must wait it out.
+        # Call Voyage; retry with backoff on free-tier rate limits.
         from voyageai.error import RateLimitError
 
         delay = 20.0
@@ -120,6 +125,7 @@ class VoyageEmbeddingProvider:
 
 
 def _normalize(vec: list[float]) -> list[float]:
+    # Unit-length vectors so fake cosine-ish comparisons stay stable in tests.
     norm = math.sqrt(sum(value * value for value in vec))
     if norm <= 0:
         return vec

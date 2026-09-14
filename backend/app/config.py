@@ -11,7 +11,7 @@ FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 EMBEDDING_MODEL = "voyage-3-large"
 EMBEDDING_DIM = 1024
 DEFAULT_COMMUNITY = "games"  # lemmy community name
-USER_AGENT = "community-voices/0.1 (take-home demo; contact: repo issues)"
+USER_AGENT = "community-voices/0.1 (+https://github.com/BryanZaneee/community-voices)"
 
 
 def _load_dotenv(path: Path = REPO_ROOT / ".env") -> None:

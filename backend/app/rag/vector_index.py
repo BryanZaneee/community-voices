@@ -20,10 +20,12 @@ class VectorIndexDependencyError(RuntimeError):
 
 
 def _serialize_f32(vec: list[float]) -> bytes:
+    # Pack floats for sqlite-vec's MATCH / INSERT blob format.
     return struct.pack(f"{len(vec)}f", *vec)
 
 
 def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
+    # Load the sqlite-vec extension onto this connection.
     try:
         import sqlite_vec
     except ModuleNotFoundError as exc:
@@ -56,6 +58,7 @@ class VectorIndex:
         self._conn: sqlite3.Connection | None = None
 
     def _connect(self) -> sqlite3.Connection:
+        # Lazy open: one shared conn for this VectorIndex instance.
         if self._conn is not None:
             return self._conn
         if self.db_path != ":memory:":
@@ -74,6 +77,7 @@ class VectorIndex:
         return conn
 
     def _ensure_schema(self) -> None:
+        # vec_chunks = vectors; chunks = text/metadata joined by rowid.
         assert self._conn is not None
         self._conn.executescript(
             f"""
@@ -105,13 +109,14 @@ class VectorIndex:
             self._conn = None
 
     def add(self, chunk: Chunk, embedding: list[float]) -> None:
+        # Single-chunk convenience wrapper around add_documents.
         self.add_documents([(chunk, embedding)])
 
     def add_documents(
         self,
         chunks: Iterable[tuple[Chunk, list[float]]],
     ) -> int:
-        """Add a batch of (chunk, embedding) pairs in one transaction."""
+        """Ingest path: write (chunk text + vector) pairs in one transaction."""
         conn = self._connect()
         count = 0
         with conn:
@@ -125,9 +130,7 @@ class VectorIndex:
         return count
 
     def delete_chunks(self, chunk_ids: list[str]) -> int:
-        """Remove chunks, their vectors, and their retrieval stats in one
-        transaction; unknown IDs are ignored. Returns the number of chunks
-        actually deleted."""
+        """Prune superseded chunks after a re-crawl (text + vector + stats)."""
         if not chunk_ids:
             return 0
         conn = self._connect()
@@ -164,6 +167,7 @@ class VectorIndex:
         chunk: Chunk,
         embedding: list[float],
     ) -> None:
+        # Insert new rowid or replace vector + metadata for an existing chunk_id.
         existing = conn.execute(
             "SELECT rowid FROM chunks WHERE chunk_id = ?", (chunk.chunk_id,)
         ).fetchone()
@@ -184,6 +188,7 @@ class VectorIndex:
         rowid: int,
         embedding: list[float],
     ) -> None:
+        # vec0 has no UPDATE, delete + re-insert the embedding blob.
         conn.execute("DELETE FROM vec_chunks WHERE rowid = ?", (rowid,))
         conn.execute(
             "INSERT INTO vec_chunks(rowid, embedding) VALUES (?, ?)",
@@ -196,6 +201,7 @@ class VectorIndex:
         rowid: int,
         chunk: Chunk,
     ) -> None:
+        # Keep chunks.content in sync so search can return text without a 2nd hop.
         conn.execute(
             """
             INSERT INTO chunks(chunk_id, rowid, path, heading_path,
@@ -227,6 +233,7 @@ class VectorIndex:
         query_embedding: list[float],
         k: int = 5,
     ) -> list[tuple[Chunk, float]]:
+        # KNN: nearest vectors by distance; join to chunks for the passage text.
         if k <= 0:
             raise ValueError("k must be a positive integer.")
         if len(query_embedding) != self.dim:
@@ -252,6 +259,7 @@ class VectorIndex:
         return out
 
     def all_embeddings(self) -> list[tuple[Chunk, list[float]]]:
+        # Used by PCA/UMAP to build the Embeddings tab 2-D map.
         conn = self._connect()
         rows = conn.execute(
             """
@@ -271,6 +279,7 @@ class VectorIndex:
 
     @staticmethod
     def _chunk_from_row(row: sqlite3.Row) -> Chunk:
+        # Rebuild a Chunk dataclass from a joined SQL row.
         return Chunk(
             chunk_id=row["chunk_id"],
             path=row["path"],
