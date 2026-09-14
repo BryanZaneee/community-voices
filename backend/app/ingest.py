@@ -1,6 +1,6 @@
 """Community crawler: fill the vector store with a community's voices.
 
-Three sources share one pipeline:
+Four sources share one pipeline:
 - lemmy (default): the open Lemmy API, keyless.
     python -m app.ingest games --window month
 - hackernews: Algolia's HN Search API, keyless.
@@ -8,6 +8,9 @@ Three sources share one pipeline:
 - reddit: top.json listings, best effort without credentials and reliable
   with a free script app (see reddit_session and README).
     python -m app.ingest games --source reddit --window month
+- x: X API v2 recent search. Needs X_BEARER_TOKEN and a paid tier; the
+  positional argument is the search query. See the README.
+    python -m app.ingest "#gaming -is:retweet" --source x --window week
 
 Flow: listing sweep (paginated) -> parallel comment fetches -> post markdown
 -> chunk -> embed (batched) -> sqlite-vec index -> 2-D projection.
@@ -318,6 +321,115 @@ def fetch_comments_reddit(session: requests.Session, post: dict) -> list[dict]:
     return out
 
 
+# -------------------------------------------------------------------- x ----
+
+X_API = "https://api.x.com/2"
+X_TWEET_FIELDS = "created_at,public_metrics,conversation_id,author_id"
+DEFAULT_X_QUERY = "#gaming -is:retweet -is:reply lang:en"
+
+
+def x_session(session: requests.Session) -> requests.Session:
+    """Attach the X API v2 bearer token. Raises if X_BEARER_TOKEN is unset."""
+    token = os.environ.get("X_BEARER_TOKEN")
+    if not token:
+        raise RuntimeError(
+            "X ingest requires X_BEARER_TOKEN in .env (X API v2, Basic tier "
+            "or above: recent search is not on the free tier)"
+        )
+    session.headers["Authorization"] = f"Bearer {token}"
+    return session
+
+
+def _x_to_common(tweet: dict, users: dict[str, str]) -> dict:
+    """Flatten an X v2 tweet onto the dict shape the pipeline uses."""
+    metrics = tweet.get("public_metrics") or {}
+    created = datetime.fromisoformat(tweet["created_at"].replace("Z", "+00:00"))
+    author = users.get(tweet.get("author_id", ""), "?")
+    return {
+        "name": f"x_{tweet['id']}",
+        "_x_conversation_id": tweet.get("conversation_id") or tweet["id"],
+        "title": " ".join((tweet.get("text") or "").split())[:120] or "(untitled)",
+        "author": author,
+        # No score on X. Likes plus reposts is the closest analogue, and it is
+        # what select_for_comments ranks on.
+        "score": (metrics.get("like_count") or 0) + (metrics.get("retweet_count") or 0),
+        "num_comments": metrics.get("reply_count") or 0,
+        "created_utc": created.timestamp(),
+        "permalink": f"https://x.com/{author}/status/{tweet['id']}",
+        "link_flair_text": None,
+        "selftext": tweet.get("text") or "",
+    }
+
+
+def _x_users(payload: dict) -> dict[str, str]:
+    """author_id -> username, from the expansions block."""
+    includes = payload.get("includes") or {}
+    return {u["id"]: u.get("username", "?") for u in includes.get("users", [])}
+
+
+def fetch_top_posts_x(
+    session: requests.Session, query: str, window: str, pages: int
+) -> list[dict]:
+    """Recent search (trailing 7 days, the API's hard ceiling), paginated.
+
+    `window="month"` cannot be honoured: v2 recent search only reaches back
+    7 days, and the full-archive endpoint is a separate, higher access tier.
+    A month request returns the week the API will give and nothing more.
+    """
+    posts: list[dict] = []
+    next_token: str | None = None
+    for _ in range(pages):
+        payload = _get_json(
+            session,
+            f"{X_API}/tweets/search/recent",
+            query=query,
+            max_results=100,
+            sort_order="relevancy",
+            **{"tweet.fields": X_TWEET_FIELDS, "expansions": "author_id",
+               "user.fields": "username"},
+            **({"next_token": next_token} if next_token else {}),
+        )
+        users = _x_users(payload)
+        data = payload.get("data") or []
+        posts.extend(_x_to_common(t, users) for t in data)
+        next_token = (payload.get("meta") or {}).get("next_token")
+        if not next_token:
+            break
+    return posts
+
+
+def fetch_comments_x(session: requests.Session, post: dict) -> list[dict]:
+    """Replies to a post, via a conversation_id recent search."""
+    try:
+        payload = _get_json(
+            session,
+            f"{X_API}/tweets/search/recent",
+            query=f"conversation_id:{post['_x_conversation_id']} is:reply",
+            max_results=max(10, COMMENTS_PER_POST * 2),
+            **{"tweet.fields": X_TWEET_FIELDS, "expansions": "author_id",
+               "user.fields": "username"},
+        )
+    except Exception:
+        return []  # a failed reply fetch never sinks the ingest
+    users = _x_users(payload)
+    out = []
+    for tweet in payload.get("data") or []:
+        body = " ".join((tweet.get("text") or "").split())
+        if not body:
+            continue
+        metrics = tweet.get("public_metrics") or {}
+        out.append(
+            {
+                "author": users.get(tweet.get("author_id", ""), "?"),
+                "score": metrics.get("like_count") or 0,
+                "body": body,
+            }
+        )
+        if len(out) >= COMMENTS_PER_POST:
+            break
+    return out
+
+
 # --------------------------------------------------------------- shared ----
 
 
@@ -473,6 +585,18 @@ def run_ingest(
         reddit_session(session)
         fetch_posts = lambda: fetch_top_posts_reddit(session, community, window, pages)
         fetch_one = fetch_comments_reddit
+    elif source == "x":
+        # `community` carries the search query for this source; the sidebar
+        # entry leaves it empty so X_QUERY (or the default) resolves here.
+        query = community or os.environ.get("X_QUERY") or DEFAULT_X_QUERY
+        display_name = f"X: {query}"
+        x_session(session)
+        # ponytail: one reply search per selected post, serial-ish through the
+        # existing 6-worker pool. X rate limits per 15-minute window, not per
+        # 10 seconds like _get_json assumes, so a wide query can still exhaust
+        # the tier. Add reset-header-aware backoff if that becomes real.
+        fetch_posts = lambda: fetch_top_posts_x(session, query, window, pages)
+        fetch_one = fetch_comments_x
     else:
         display_name = f"{community}@{LEMMY_INSTANCE.removeprefix('https://')}"
         fetch_posts = lambda: fetch_top_posts_lemmy(session, community, window, pages * 2)
@@ -518,7 +642,7 @@ def run_ingest(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest a community's voices")
     parser.add_argument("community", nargs="?", default=config.DEFAULT_COMMUNITY)
-    parser.add_argument("--source", choices=["lemmy", "hackernews", "reddit"], default="lemmy")
+    parser.add_argument("--source", choices=["lemmy", "hackernews", "reddit", "x"], default="lemmy")
     parser.add_argument("--window", choices=["month", "week"], default="month")
     parser.add_argument("--pages", type=int, default=LISTING_PAGES,
                         help="listing pages (~100 posts each)")
