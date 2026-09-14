@@ -13,9 +13,10 @@ gaming community, chosen deliberately: its API is public by design, so anyone
 can run the crawler and the live week-pull with **zero credentials**. (I
 would have used Reddit, but scraping it now requires an approved developer
 account. Reddit's 2026 Data API gate blocks unauthenticated `.json`/RSS
-access, so nobody cloning this repo could reproduce the ingest.) A sidebar
-source switcher can wipe and re-ingest the dataset from other open sources:
-c/technology, c/asklemmy, or Hacker News (Algolia search API).
+access, so nobody cloning this repo could reproduce the ingest. There is a
+Reddit source anyway, behind credentials: see **Reddit** below.) A sidebar
+source switcher can wipe and re-ingest the dataset from other sources:
+c/technology, c/asklemmy, Hacker News (Algolia search API), or r/games.
 
 ![Report tab](docs/report-tab.png)
 
@@ -209,6 +210,39 @@ posts are pruned rather than left stale. The Ingestion tab's **"Run now"**
 button runs the same pipeline for the trailing 7 days and the new window
 appears in the week selector. Measured on the real month ingest: 200 posts +
 115 comment fetches in 6.1 s, chunk + embed + index in 18.9 s.
+
+### Reddit
+
+`.venv/bin/python -m app.ingest games --source reddit` crawls
+`/r/<sub>/top.json` with the same listing sweep, comment fan-out, chunker, and
+idempotent upsert as the other two sources. Only the two fetch functions and
+the mapper are Reddit-specific.
+
+Credentials are optional in the code and effectively required in practice.
+Set `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET` from a free "script" app at
+<https://www.reddit.com/prefs/apps>, plus a descriptive `REDDIT_USER_AGENT`,
+and the crawler authenticates app-only against `oauth.reddit.com`. Without
+them it falls back to the public `.json` endpoints.
+
+**The keyless fallback does not work.** Verified on 2026-09-14 from a
+residential connection with no credentials set:
+
+```
+GET https://www.reddit.com/r/games/top.json?t=week&limit=5
+HTTP 403  (an HTML block page, not JSON)
+```
+
+That is Reddit's Data API gate, the same one the intro describes, and it is
+why Lemmy remains the default source. No live Reddit corpus was ingested for
+this branch and none is claimed. The adapter is verified against recorded
+payload shapes in `backend/tests/test_ingest_unit.py`, including the gated
+response: a 403 or a non-array body returns zero comments rather than raising,
+so a partially blocked crawl degrades instead of failing. Whether the
+credentialed path returns a usable week is untested, because no Reddit app
+credentials were available.
+
+Rate limiting reuses the shared `_get_json` retry: one 10-second sleep on a
+429 or 5xx, then a single retry.
 
 Because re-runs are idempotent, unattended weekly ingestion is one cron line:
 

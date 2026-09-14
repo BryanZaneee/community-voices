@@ -229,3 +229,175 @@ def test_run_ingest_hackernews_dispatch(tmp_path, monkeypatch):
     assert report["posts"] == 4
     assert db.get_meta(conn, "source") == "hackernews"
     assert db.get_meta(conn, "community") == "Hacker News"
+
+
+# ---------------------------------------------------------------- reddit ----
+
+
+def test_reddit_to_common():
+    child = {
+        "kind": "t3",
+        "data": {
+            "id": "1abcde",
+            "permalink": "/r/games/comments/1abcde/steam_machine_pricing/",
+            "title": "Steam Machine pricing announced",
+            "author": "someone",
+            "score": 719,
+            "num_comments": 537,
+            "created_utc": 1782909000.0,
+            "link_flair_text": "News",
+            "selftext": "Discussion body",
+        },
+    }
+    p = ingest._reddit_to_common(child)
+    assert p["name"] == "reddit_1abcde"
+    assert p["title"] == "Steam Machine pricing announced"
+    assert p["score"] == 719 and p["num_comments"] == 537
+    assert p["selftext"] == "Discussion body"
+    assert p["link_flair_text"] == "News"
+    assert p["permalink"] == (
+        "https://www.reddit.com/r/games/comments/1abcde/steam_machine_pricing/"
+    )
+    assert p["created_utc"] == 1782909000.0
+
+
+def test_reddit_to_common_defaults_missing_fields():
+    # link posts carry no selftext and can arrive with score/comments absent
+    p = ingest._reddit_to_common(
+        {"data": {"id": "x", "permalink": "/r/games/comments/x/", "created_utc": 1}}
+    )
+    assert p["score"] == 0 and p["num_comments"] == 0
+    assert p["selftext"] == "" and p["title"] == "(untitled)"
+
+
+def test_fetch_top_posts_reddit_paginates_and_filters_kinds(monkeypatch):
+    pages = [
+        {
+            "data": {
+                "after": "t3_page2",
+                "children": [
+                    {"kind": "t3", "data": {"id": f"a{i}", "permalink": f"/p/a{i}/",
+                                            "created_utc": 1, "title": "t"}}
+                    for i in range(3)
+                ]
+                + [{"kind": "t1", "data": {"id": "nope"}}],  # not a post
+            }
+        },
+        {
+            "data": {
+                "after": None,
+                "children": [
+                    {"kind": "t3", "data": {"id": "b0", "permalink": "/p/b0/",
+                                            "created_utc": 1, "title": "t"}}
+                ],
+            }
+        },
+    ]
+    seen = []
+
+    def fake_get(session, url, **params):
+        seen.append(params)
+        return pages[len(seen) - 1]
+
+    monkeypatch.setattr(ingest, "_get_json", fake_get)
+    posts = ingest.fetch_top_posts_reddit(object(), "games", "month", pages=4)
+    assert [p["name"] for p in posts] == ["reddit_a0", "reddit_a1", "reddit_a2", "reddit_b0"]
+    assert seen[0]["t"] == "month" and "after" not in seen[0]
+    assert seen[1]["after"] == "t3_page2"  # cursor carried forward
+    assert len(seen) == 2  # stops when data.after is null, short of pages=4
+
+
+def test_fetch_comments_reddit_skips_noise_and_caps(monkeypatch):
+    children = [
+        {"kind": "t1", "data": {"author": "AutoModerator", "body": "bot", "score": 1}},
+        {"kind": "t1", "data": {"author": "mod", "body": "pinned", "stickied": True}},
+        {"kind": "t1", "data": {"author": "gone", "body": "[deleted]"}},
+        {"kind": "more", "data": {"count": 40}},
+    ] + [
+        {"kind": "t1", "data": {"author": f"u{i}", "body": f"c{i}", "score": i}}
+        for i in range(ingest.COMMENTS_PER_POST + 5)
+    ]
+    monkeypatch.setattr(
+        ingest,
+        "_get_json",
+        lambda session, url, **params: [{}, {"data": {"children": children}}],
+    )
+    out = ingest.fetch_comments_reddit(object(), {"_reddit_permalink": "/r/games/c/1/"})
+    assert len(out) == ingest.COMMENTS_PER_POST
+    assert all(c["body"].startswith("c") for c in out)
+    assert not any(c["author"] == "AutoModerator" for c in out)
+
+
+def test_fetch_comments_reddit_tolerates_gated_response(monkeypatch):
+    """Reddit's Data API gate answers with a dict (or an error) rather than
+    the two-listing array; the crawl must degrade, not raise."""
+    monkeypatch.setattr(
+        ingest, "_get_json", lambda session, url, **params: {"error": 403}
+    )
+    assert ingest.fetch_comments_reddit(object(), {"_reddit_permalink": "/r/x/c/1/"}) == []
+
+    def boom(session, url, **params):
+        raise RuntimeError("403 Blocked")
+
+    monkeypatch.setattr(ingest, "_get_json", boom)
+    assert ingest.fetch_comments_reddit(object(), {"_reddit_permalink": "/r/x/c/1/"}) == []
+
+
+def test_reddit_session_public_without_credentials(monkeypatch):
+    import requests
+
+    monkeypatch.delenv("REDDIT_CLIENT_ID", raising=False)
+    monkeypatch.delenv("REDDIT_CLIENT_SECRET", raising=False)
+    monkeypatch.setenv("REDDIT_USER_AGENT", "test-agent/1.0")
+    s = ingest.reddit_session(requests.Session())
+    assert s.base == ingest.REDDIT_PUBLIC
+    assert s.headers["User-Agent"] == "test-agent/1.0"
+    assert "Authorization" not in s.headers
+
+
+def test_reddit_session_uses_oauth_with_credentials(monkeypatch):
+    import requests
+
+    monkeypatch.setenv("REDDIT_CLIENT_ID", "id")
+    monkeypatch.setenv("REDDIT_CLIENT_SECRET", "secret")
+
+    class FakeResp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"access_token": "tok"}
+
+    monkeypatch.setattr(
+        requests.Session, "post", lambda self, url, **kw: FakeResp()
+    )
+    s = ingest.reddit_session(requests.Session())
+    assert s.base == ingest.REDDIT_OAUTH
+    assert s.headers["Authorization"] == "Bearer tok"
+
+
+def test_run_ingest_reddit_dispatch(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "rd.sqlite")
+    vec = VectorIndex(tmp_path / "rd.sqlite", dim=DIM)
+    posts, comments = make_posts(n=4)
+    monkeypatch.delenv("REDDIT_CLIENT_ID", raising=False)
+    monkeypatch.delenv("REDDIT_CLIENT_SECRET", raising=False)
+    monkeypatch.setattr(ingest, "fetch_top_posts_reddit", lambda s, c, w, p: posts)
+    monkeypatch.setattr(
+        ingest, "fetch_comments_reddit", lambda s, p: comments[p["name"]]
+    )
+    report = ingest.run_ingest(
+        conn, vec, FakeEmbeddingProvider(dim=DIM), "games", source="reddit"
+    )
+    assert report["posts"] == 4
+    assert db.get_meta(conn, "source") == "reddit"
+    assert db.get_meta(conn, "community") == "r/games"
+
+
+def test_reddit_is_a_registered_source():
+    from app import config
+
+    src = next(s for s in config.SOURCES if s["kind"] == "reddit")
+    assert src["community"] and src["key"] == "reddit:games"

@@ -1,10 +1,13 @@
 """Community crawler: fill the vector store with a community's voices.
 
-Two sources share one pipeline, both keyless/no-approval-needed:
-- lemmy (default): the open Lemmy API.
+Three sources share one pipeline:
+- lemmy (default): the open Lemmy API, keyless.
     python -m app.ingest games --window month
-- hackernews: Algolia's HN Search API.
+- hackernews: Algolia's HN Search API, keyless.
     python -m app.ingest --source hackernews --window month
+- reddit: top.json listings, best effort without credentials and reliable
+  with a free script app (see reddit_session and README).
+    python -m app.ingest games --source reddit --window month
 
 Flow: listing sweep (paginated) -> parallel comment fetches -> post markdown
 -> chunk -> embed (batched) -> sqlite-vec index -> 2-D projection.
@@ -17,6 +20,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import sqlite3
 import time
@@ -41,8 +45,8 @@ EMBED_BATCH = 64
 FETCH_WORKERS = 6
 
 
-def _get_json(session: requests.Session, url: str, **params) -> dict:
-    """GET with one retry on rate-limit/server errors."""
+def _get_json(session: requests.Session, url: str, **params) -> dict | list:
+    """GET with one retry (after a 10 s sleep) on 429 or 5xx."""
     for attempt in (0, 1):
         resp = session.get(url, params=params, timeout=30)
         if resp.status_code in (429, 500, 502, 503) and attempt == 0:
@@ -200,6 +204,120 @@ def fetch_comments_hn(session: requests.Session, post: dict) -> list[dict]:
     return out
 
 
+# --------------------------------------------------------------- reddit ----
+
+REDDIT_PUBLIC = "https://www.reddit.com"
+REDDIT_OAUTH = "https://oauth.reddit.com"
+
+
+def reddit_session(session: requests.Session) -> requests.Session:
+    """Point `session` at Reddit, with app-only OAuth when credentials exist.
+
+    Reddit's Data API gate blocks unauthenticated .json on most networks, so
+    the public base is a best effort. REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET
+    from a free script app (reddit.com/prefs/apps) switch it to
+    oauth.reddit.com, which is reliable. REDDIT_USER_AGENT overrides the
+    default crawler User-Agent; Reddit rejects generic ones.
+    """
+    session.base = REDDIT_PUBLIC
+    session.headers["User-Agent"] = os.environ.get(
+        "REDDIT_USER_AGENT", config.USER_AGENT
+    )
+    client_id = os.environ.get("REDDIT_CLIENT_ID")
+    client_secret = os.environ.get("REDDIT_CLIENT_SECRET")
+    if not (client_id and client_secret):
+        return session
+    resp = session.post(
+        f"{REDDIT_PUBLIC}/api/v1/access_token",
+        data={"grant_type": "client_credentials"},
+        auth=(client_id, client_secret),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    session.headers["Authorization"] = f"Bearer {resp.json()['access_token']}"
+    session.base = REDDIT_OAUTH
+    return session
+
+
+def _reddit_to_common(child: dict) -> dict:
+    """Flatten a Reddit t3 listing child onto the dict shape the pipeline uses."""
+    d = child["data"]
+    return {
+        "name": f"reddit_{d['id']}",
+        "_reddit_permalink": d["permalink"],
+        "title": d.get("title") or "(untitled)",
+        "author": d.get("author"),
+        "score": d.get("score") or 0,
+        "num_comments": d.get("num_comments") or 0,
+        "created_utc": d["created_utc"],
+        "permalink": f"{REDDIT_PUBLIC}{d['permalink']}",
+        "link_flair_text": d.get("link_flair_text"),
+        "selftext": d.get("selftext") or "",
+    }
+
+
+def fetch_top_posts_reddit(
+    session: requests.Session, subreddit: str, window: str, pages: int
+) -> list[dict]:
+    # Paginated /r/<sub>/top.json, 100 per page, cursor in data.after.
+    base = getattr(session, "base", REDDIT_PUBLIC)
+    posts: list[dict] = []
+    after: str | None = None
+    for _ in range(pages):
+        payload = _get_json(
+            session,
+            f"{base}/r/{subreddit}/top.json",
+            t="month" if window == "month" else "week",
+            limit=100,
+            raw_json=1,
+            **({"after": after} if after else {}),
+        )
+        data = payload.get("data") or {} if isinstance(payload, dict) else {}
+        children = [c for c in data.get("children", []) if c.get("kind") == "t3"]
+        posts.extend(_reddit_to_common(c) for c in children)
+        after = data.get("after")
+        if not after:
+            break
+    return posts
+
+
+def fetch_comments_reddit(session: requests.Session, post: dict) -> list[dict]:
+    """Top-level comments, skipping stickied, bot, and deleted entries."""
+    base = getattr(session, "base", REDDIT_PUBLIC)
+    try:
+        payload = _get_json(
+            session,
+            f"{base}{post['_reddit_permalink'].rstrip('/')}.json",
+            sort="top",
+            limit=COMMENTS_PER_POST * 2,
+            depth=1,
+            raw_json=1,
+        )
+    except Exception:
+        return []  # a failed comment fetch never sinks the ingest
+    # The comments endpoint returns [post listing, comment listing].
+    if not isinstance(payload, list) or len(payload) < 2:
+        return []
+    out = []
+    for child in payload[1].get("data", {}).get("children", []):
+        if child.get("kind") != "t1":
+            continue
+        c = child["data"]
+        body = (c.get("body") or "").strip()
+        author = c.get("author")
+        if (
+            not body
+            or body in ("[deleted]", "[removed]")
+            or c.get("stickied")
+            or author in (None, "AutoModerator", "[deleted]")
+        ):
+            continue
+        out.append({"author": author, "score": c.get("score") or 0, "body": body})
+        if len(out) >= COMMENTS_PER_POST:
+            break
+    return out
+
+
 # --------------------------------------------------------------- shared ----
 
 
@@ -350,6 +468,11 @@ def run_ingest(
         display_name = "Hacker News"
         fetch_posts = lambda: fetch_top_posts_hn(session, window, pages)
         fetch_one = fetch_comments_hn
+    elif source == "reddit":
+        display_name = f"r/{community}"
+        reddit_session(session)
+        fetch_posts = lambda: fetch_top_posts_reddit(session, community, window, pages)
+        fetch_one = fetch_comments_reddit
     else:
         display_name = f"{community}@{LEMMY_INSTANCE.removeprefix('https://')}"
         fetch_posts = lambda: fetch_top_posts_lemmy(session, community, window, pages * 2)
@@ -395,7 +518,7 @@ def run_ingest(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest a community's voices")
     parser.add_argument("community", nargs="?", default=config.DEFAULT_COMMUNITY)
-    parser.add_argument("--source", choices=["lemmy", "hackernews"], default="lemmy")
+    parser.add_argument("--source", choices=["lemmy", "hackernews", "reddit"], default="lemmy")
     parser.add_argument("--window", choices=["month", "week"], default="month")
     parser.add_argument("--pages", type=int, default=LISTING_PAGES,
                         help="listing pages (~100 posts each)")
