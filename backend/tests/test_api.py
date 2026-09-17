@@ -228,6 +228,39 @@ def test_ingest_week_requires_voyage_key(client):
     assert "VOYAGE_API_KEY" in resp.json()["detail"]
 
 
+def test_ingest_requires_admin_token_when_set(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "secret")
+    assert client.post("/api/ingest/week").status_code == 403
+    assert client.post(
+        "/api/ingest/source", json={"source_key": "hackernews"}
+    ).status_code == 403
+    # right token clears the gate; falls through to the next (VOYAGE) check
+    resp = client.post(
+        "/api/ingest/week", headers={"Authorization": "Bearer secret"}
+    )
+    assert resp.status_code == 400
+    assert "VOYAGE_API_KEY" in resp.json()["detail"]
+
+
+def test_status_reports_ingest_lock(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "secret")
+    d = client.get("/api/status").json()
+    assert d["ingest_locked"] is True
+    assert d["can_pull_live"] is False
+    assert {"llm_used", "llm_cap", "embed_used", "embed_cap"} == set(d["budget"])
+
+
+def test_fourth_generate_in_window_is_rate_limited(client, monkeypatch):
+    from app import main as app_main
+
+    monkeypatch.setattr(app_main.config, "GENERATE_PER_10MIN", 3)
+    for _ in range(3):
+        assert _generate(client).status_code == 200
+    resp = _generate(client)
+    assert resp.status_code == 429
+    assert "too many generations" in resp.json()["detail"]
+
+
 def test_embeddings_endpoint(client):
     d = client.get("/api/embeddings").json()
     assert len(d["points"]) > 0

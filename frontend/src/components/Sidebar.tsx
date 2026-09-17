@@ -58,6 +58,7 @@ export function Sidebar({
   const sources = status?.sources ?? []
   const canGenerate = available.size > 0 && !running
   const curStage = stages[run.stage]
+  const sourceLocked = status?.ingest_locked ?? false
 
   return (
     <aside
@@ -147,9 +148,9 @@ export function Sidebar({
                 aria-label="Source"
                 className="source-select"
                 value={currentSourceKey}
-                disabled={sourceBusy || running || sources.length === 0}
+                disabled={sourceBusy || running || sources.length === 0 || sourceLocked}
                 onChange={(e) => onSwitchSource(e.target.value)}
-                title="Switch source (re-ingests from scratch)"
+                title={sourceLocked ? 'Source switching is locked on this deployment' : 'Switch source (re-ingests from scratch)'}
                 style={{
                   fontFamily: DISPLAY, fontWeight: 600, fontSize: 14, lineHeight: 1.15,
                   width: '100%',
@@ -163,7 +164,9 @@ export function Sidebar({
                 ))}
               </select>
               <div style={{ fontFamily: MONO, fontSize: 10, color: sourceError ? '#A6522E' : '#8A8C7C' }}>
-                {sourceBusy ? 'switching source…' : sourceError ?? 'source of this report · click to switch'}
+                {sourceBusy
+                  ? 'switching source…'
+                  : sourceError ?? (sourceLocked ? 'source switching locked' : 'source of this report · click to switch')}
               </div>
             </div>
           </div>

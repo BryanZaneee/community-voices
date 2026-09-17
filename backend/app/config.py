@@ -77,6 +77,21 @@ MODELS: dict[str, dict] = {
 
 DEFAULT_MODEL_KEY = "deepseek-v4"
 
+# Spend guards for the public demo (see backend/app/budget.py). 0 disables.
+DAILY_LLM_CALL_CAP = int(os.environ.get("DAILY_LLM_CALL_CAP", "40"))
+DAILY_EMBED_CALL_CAP = int(os.environ.get("DAILY_EMBED_CALL_CAP", "300"))
+GENERATE_PER_10MIN = int(os.environ.get("GENERATE_PER_10MIN", "3"))
+
+# Model keys selectable on this deployment, independent of which API keys
+# are configured — lets a demo restrict generation to cheap models only.
+ALLOWED_MODELS: set[str] = {
+    m.strip()
+    for m in os.environ.get(
+        "ALLOWED_MODELS", "deepseek-v4,deepseek-v4-flash"
+    ).split(",")
+    if m.strip()
+}
+
 # Switchable ingest sources for the sidebar source picker — each reuses the
 # shared crawl/chunk/embed pipeline in app.ingest.
 SOURCES: list[dict] = [
@@ -92,5 +107,9 @@ SOURCES: list[dict] = [
 
 
 def available_models() -> list[str]:
-    """Model keys whose API key is present in the environment."""
-    return [key for key, cfg in MODELS.items() if os.environ.get(cfg["key_env"])]
+    """Model keys whose API key is present and that are allow-listed."""
+    return [
+        key
+        for key, cfg in MODELS.items()
+        if os.environ.get(cfg["key_env"]) and key in ALLOWED_MODELS
+    ]

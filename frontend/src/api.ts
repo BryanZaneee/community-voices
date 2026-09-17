@@ -39,6 +39,13 @@ export interface Status {
   } | null
   hybrid: boolean
   can_pull_live: boolean
+  ingest_locked: boolean
+  budget: {
+    llm_used: number
+    llm_cap: number
+    embed_used: number
+    embed_cap: number
+  }
   models_available: string[]
   model_keys: string[]
   models: Record<string, { label: string; vendor: string }>
