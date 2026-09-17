@@ -8,6 +8,8 @@ import re
 import time
 from typing import Protocol
 
+from app import budget
+
 
 class EmbeddingProviderError(RuntimeError):
     """Raised when an embedding backend is missing or misconfigured."""
@@ -104,6 +106,7 @@ class VoyageEmbeddingProvider:
 
     def _embed(self, texts: list[str], *, input_type: str) -> list[list[float]]:
         # Call Voyage; retry with backoff on free-tier rate limits.
+        budget.charge(None, "embed")  # one charge per request, batched or not
         from voyageai.error import RateLimitError
 
         delay = 20.0

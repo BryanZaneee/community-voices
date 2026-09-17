@@ -10,16 +10,17 @@ import os
 import queue
 import sqlite3
 import threading
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import config, db, generate, ingest, llm
+from app import budget, config, db, generate, ingest, llm
 from app.rag.embeddings import VoyageEmbeddingProvider
 from app.rag.retriever import RetrievalMode, Retriever
 from app.rag.vector_index import VectorIndex
@@ -30,6 +31,42 @@ state: dict = {}
 # the vector index's own connection, and the swappable retriever. Reads use
 # fresh per-request connections (read_conn) and never take the lock.
 write_lock = threading.Lock()
+
+# Per-visitor fixed-window limiter for the generation endpoints.
+# ponytail: in-process, one worker; move to SQLite/Redis if it ever fronts
+# more than one worker process.
+_visitor_lock = threading.Lock()
+_visitor_hits: dict[str, list[float]] = {}
+
+
+def _visitor_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    return (
+        request.headers.get("cf-connecting-ip")
+        or fwd.split(",")[0].strip()
+        or (request.client.host if request.client else "unknown")
+    )
+
+
+def _check_generate_limit(request: Request) -> None:
+    if config.GENERATE_PER_10MIN <= 0:
+        return
+    ip = _visitor_ip(request)
+    now = time.monotonic()
+    with _visitor_lock:
+        hits = [t for t in _visitor_hits.get(ip, []) if now - t < 600]
+        if len(hits) >= config.GENERATE_PER_10MIN:
+            raise HTTPException(429, "too many generations; wait a few minutes")
+        hits.append(now)
+        _visitor_hits[ip] = hits
+
+
+def _check_admin(authorization: str | None) -> None:
+    # Dataset mutators (ingest) are open when ADMIN_TOKEN is unset, so local
+    # dev is unaffected; the public demo sets it to lock them down.
+    token = os.environ.get("ADMIN_TOKEN")
+    if token and authorization != f"Bearer {token}":
+        raise HTTPException(403, "admin token required")
 
 
 def _build_retriever(conn: sqlite3.Connection, vector_index: VectorIndex) -> Retriever:
@@ -53,6 +90,7 @@ async def lifespan(app: FastAPI):
     state["conn"] = conn
     state["vector_index"] = vector_index
     state["retriever"] = _build_retriever(conn, vector_index)
+    budget.bind(conn)
     yield
     conn.close()
     vector_index.close()
@@ -88,6 +126,7 @@ def status(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
     # Sidebar bootstrap: weeks, models, hybrid flag, ingest funnel stats.
     weeks = db.week_windows(conn)
     ingest_report = db.get_meta(conn, "ingest_report")
+    admin_locked = bool(os.environ.get("ADMIN_TOKEN"))
     return {
         "community": db.get_meta(conn, "community"),
         "source": db.get_meta(conn, "source") or "lemmy",
@@ -106,7 +145,9 @@ def status(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
             "comments_per_post": ingest.COMMENTS_PER_POST,
         },
         "hybrid": state["retriever"].embedding is not None,
-        "can_pull_live": bool(os.environ.get("VOYAGE_API_KEY")),
+        "can_pull_live": bool(os.environ.get("VOYAGE_API_KEY")) and not admin_locked,
+        "ingest_locked": admin_locked,
+        "budget": budget.usage(conn),
         "models_available": config.available_models(),
         "model_keys": list(config.MODELS.keys()),
         "models": {
@@ -125,8 +166,9 @@ class GenerateBody(BaseModel):
 
 
 @app.post("/api/generate")
-def generate_endpoint(body: GenerateBody) -> dict:
+def generate_endpoint(body: GenerateBody, request: Request) -> dict:
     # Non-streaming generate (JSON). Prefer /generate/stream for the UI.
+    _check_generate_limit(request)
     with write_lock:
         try:
             doc_id = generate.generate_document(
@@ -137,6 +179,8 @@ def generate_endpoint(body: GenerateBody) -> dict:
                 model_key=body.model_key,
                 retrieval_mode=body.retrieval_mode,
             )
+        except budget.BudgetExhausted as exc:
+            raise HTTPException(429, str(exc))
         except (llm.ModelUnavailable, ValueError) as exc:
             raise HTTPException(400, str(exc))
         return _row_to_doc(
@@ -212,6 +256,7 @@ def _live_pull(conn: sqlite3.Connection, progress) -> None:
 
 @app.get("/api/generate/stream")
 def generate_stream(
+    request: Request,
     week_start: str,
     model_key: str,
     mode: Literal["rag", "baseline"] = "rag",
@@ -222,6 +267,7 @@ def generate_stream(
     # the model writes from up-to-date data, skipped when the corpus was
     # ingested within the last 12 hours. Keyless runs use the stored corpus
     # and replay the ingest-time stage numbers.
+    _check_generate_limit(request)
     conn = state["conn"]
     live = (
         mode == "rag"
@@ -320,8 +366,9 @@ class CompareBody(BaseModel):
 
 
 @app.post("/api/compare")
-def compare_endpoint(body: CompareBody) -> dict:
+def compare_endpoint(body: CompareBody, request: Request) -> dict:
     """A/B tab standalone: RAG vs baseline + judge (no SSE)."""
+    _check_generate_limit(request)
     with write_lock:
         try:
             comp_id, _ = generate.run_comparison(
@@ -330,6 +377,8 @@ def compare_endpoint(body: CompareBody) -> dict:
                 week_start=body.week_start,
                 model_key=body.model_key,
             )
+        except budget.BudgetExhausted as exc:
+            raise HTTPException(429, str(exc))
         except (llm.ModelUnavailable, ValueError) as exc:
             raise HTTPException(400, str(exc))
         except Exception as exc:
@@ -425,8 +474,9 @@ def download_document(
 
 
 @app.post("/api/ingest/week")
-def ingest_week() -> dict:
+def ingest_week(authorization: str | None = Header(None)) -> dict:
     # Ingest tab "Run now": trailing 7-day pull of the active source.
+    _check_admin(authorization)
     if not os.environ.get("VOYAGE_API_KEY"):
         raise HTTPException(400, "Live pull requires VOYAGE_API_KEY in .env")
     with write_lock:
@@ -434,10 +484,13 @@ def ingest_week() -> dict:
         source = db.get_meta(conn, "source") or "lemmy"
         community = (db.get_meta(conn, "community") or config.DEFAULT_COMMUNITY).split("@")[0]
         provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
-        report = ingest.run_ingest(
-            conn, state["vector_index"], provider, community,
-            window="week", pages=1, source=source,
-        )
+        try:
+            report = ingest.run_ingest(
+                conn, state["vector_index"], provider, community,
+                window="week", pages=1, source=source,
+            )
+        except budget.BudgetExhausted as exc:
+            raise HTTPException(429, str(exc))
         # BM25 is in-memory — rebuild so new chunks are searchable immediately
         state["retriever"] = _build_retriever(conn, state["vector_index"])
         return {"report": report, "weeks": db.week_windows(conn)}
@@ -448,8 +501,11 @@ class SwitchSourceBody(BaseModel):
 
 
 @app.post("/api/ingest/source")
-def ingest_source(body: SwitchSourceBody) -> dict:
+def ingest_source(
+    body: SwitchSourceBody, authorization: str | None = Header(None)
+) -> dict:
     """Sidebar source switcher: wipe + month ingest for Lemmy/HN target."""
+    _check_admin(authorization)
     if not os.environ.get("VOYAGE_API_KEY"):
         raise HTTPException(400, "Switching sources requires VOYAGE_API_KEY in .env")
     src = next((s for s in config.SOURCES if s["key"] == body.source_key), None)
@@ -458,10 +514,13 @@ def ingest_source(body: SwitchSourceBody) -> dict:
     with write_lock:
         conn = state["conn"]
         provider = VoyageEmbeddingProvider(model=config.EMBEDDING_MODEL)
-        report = ingest.run_ingest(
-            conn, state["vector_index"], provider, src.get("community", ""),
-            window="month", source=src["kind"], reset=True,
-        )
+        try:
+            report = ingest.run_ingest(
+                conn, state["vector_index"], provider, src.get("community", ""),
+                window="month", source=src["kind"], reset=True,
+            )
+        except budget.BudgetExhausted as exc:
+            raise HTTPException(429, str(exc))
         state["retriever"] = _build_retriever(conn, state["vector_index"])
         return {"report": report, "weeks": db.week_windows(conn)}
 

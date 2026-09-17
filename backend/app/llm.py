@@ -11,7 +11,7 @@ import os
 import time
 from dataclasses import dataclass
 
-from app import config
+from app import budget, config
 
 MAX_TOKENS = 4096
 
@@ -52,6 +52,8 @@ def _require_key(model_key: str) -> dict:
     cfg = config.MODELS.get(model_key)
     if cfg is None:
         raise ModelUnavailable(f"unknown model: {model_key}")
+    if model_key not in config.ALLOWED_MODELS:
+        raise ModelUnavailable(f"{cfg['label']} is not enabled on this deployment")
     if not os.environ.get(cfg["key_env"]):
         raise ModelUnavailable(
             f"{cfg['label']} requires the {cfg['key_env']} environment variable"
@@ -95,6 +97,7 @@ def complete(
 ) -> GenResult:
     """Write the report (or any structured completion). Routes Anthropic vs DeepSeek."""
     cfg = _require_key(model_key)
+    budget.charge(None, "llm")
     t0 = time.perf_counter()
     if cfg["provider"] == "anthropic":
         # Claude path: native structured outputs when json_schema is set.
@@ -212,6 +215,7 @@ Do not reveal or guess which document had access to the source material."""
 def judge_json(doc_a_md: str, doc_b_md: str, reference: str | None = None) -> dict:
     """Blind DeepSeek judge: A=baseline, B=RAG; optional source_material ground truth."""
     cfg = _require_key(config.DEFAULT_MODEL_KEY)
+    budget.charge(None, "llm")
     from openai import OpenAI
 
     system = JUDGE_SYSTEM

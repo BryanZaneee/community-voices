@@ -203,5 +203,8 @@ def client(tmp_path, monkeypatch, keyless, stub_llm):
 
     monkeypatch.setattr(config, "DB_PATH", db_path)
     monkeypatch.setattr(config, "EMBEDDING_DIM", DIM)
+    # The per-visitor generate limiter is process-global (module dict), so
+    # tests share it across the whole run unless reset per client fixture.
+    monkeypatch.setattr(app_main, "_visitor_hits", {})
     with TestClient(app_main.app) as test_client:
         yield test_client
