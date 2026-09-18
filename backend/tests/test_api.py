@@ -212,6 +212,37 @@ def test_generate_stream_skips_pull_when_fresh(client, monkeypatch):
     assert "event: done" in body
 
 
+def test_generate_stream_pull_respects_admin_lock(client, monkeypatch):
+    """The pre-report pull is a crawl + paid embed: with ADMIN_TOKEN set it
+    only runs for a request carrying the token. Everyone else generates
+    from the stored corpus and gets the cached crawl/reduce/embed stages."""
+    from app import main as app_main
+
+    monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
+    monkeypatch.setenv("ADMIN_TOKEN", "secret")
+    _backdate_ingest(app_main)  # stale enough that an open pull would run
+
+    def boom(*args, **kwargs):
+        raise AssertionError("crawler/embedder ran without the admin token")
+
+    monkeypatch.setattr(app_main.ingest, "run_ingest", boom)
+    monkeypatch.setattr(app_main, "VoyageEmbeddingProvider", boom)
+    url = f"/api/generate/stream?week_start={_week(client)}&model_key=deepseek-v4"
+
+    with client.stream("GET", url) as resp:
+        body = "".join(resp.iter_text())
+    assert "live pull" not in body
+    assert '"status": "cached"' in body
+    assert "event: done" in body and "event: error" not in body
+
+    # the token opens the gate: the pull is attempted (and here fails loudly)
+    with client.stream(
+        "GET", url, headers={"Authorization": "Bearer secret"}
+    ) as resp:
+        body = "".join(resp.iter_text())
+    assert "live pull failed" in body and "without the admin token" in body
+
+
 def test_generate_stream_error_event(client):
     week = _week(client)
     with client.stream(

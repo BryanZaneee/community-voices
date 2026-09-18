@@ -61,11 +61,16 @@ def _check_generate_limit(request: Request) -> None:
         _visitor_hits[ip] = hits
 
 
-def _check_admin(authorization: str | None) -> None:
-    # Dataset mutators (ingest) are open when ADMIN_TOKEN is unset, so local
-    # dev is unaffected; the public demo sets it to lock them down.
+def _is_admin(authorization: str | None) -> bool:
+    # Dataset mutators (ingest, pre-report pull) are open when ADMIN_TOKEN is
+    # unset, so local dev is unaffected; the hosted instance sets it to lock
+    # them down.
     token = os.environ.get("ADMIN_TOKEN")
-    if token and authorization != f"Bearer {token}":
+    return not token or authorization == f"Bearer {token}"
+
+
+def _check_admin(authorization: str | None) -> None:
+    if not _is_admin(authorization):
         raise HTTPException(403, "admin token required")
 
 
@@ -261,17 +266,21 @@ def generate_stream(
     model_key: str,
     mode: Literal["rag", "baseline"] = "rag",
     retrieval_mode: RetrievalMode = "hybrid",
+    authorization: str | None = Header(None),
 ) -> StreamingResponse:
     """SSE Report tab: live pull (optional), run_comparison, stage events."""
     # With a Voyage key, a RAG run starts with a live trailing-7-day pull so
     # the model writes from up-to-date data, skipped when the corpus was
-    # ingested within the last 12 hours. Keyless runs use the stored corpus
-    # and replay the ingest-time stage numbers.
+    # ingested within the last 12 hours. The pull is a crawl + paid embed,
+    # so it sits behind the same admin lock as /api/ingest/*: locked or
+    # keyless runs use the stored corpus and replay the ingest-time stage
+    # numbers (status "cached").
     _check_generate_limit(request)
     conn = state["conn"]
     live = (
         mode == "rag"
         and bool(os.environ.get("VOYAGE_API_KEY"))
+        and _is_admin(authorization)
         and not _pulled_recently(conn)
     )
     q: queue.Queue = queue.Queue()
