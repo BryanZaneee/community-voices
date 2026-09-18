@@ -150,7 +150,7 @@ export function Sidebar({
                 value={currentSourceKey}
                 disabled={sourceBusy || running || sources.length === 0 || sourceLocked}
                 onChange={(e) => onSwitchSource(e.target.value)}
-                title={sourceLocked ? 'Source switching is locked on this deployment' : 'Switch source (re-ingests from scratch)'}
+                title={sourceLocked ? 'The hosted instance follows c/games@lemmy.world. Run your own to choose a source.' : 'Switch source (re-ingests from scratch)'}
                 style={{
                   fontFamily: DISPLAY, fontWeight: 600, fontSize: 14, lineHeight: 1.15,
                   width: '100%',
@@ -166,7 +166,7 @@ export function Sidebar({
               <div style={{ fontFamily: MONO, fontSize: 10, color: sourceError ? '#A6522E' : '#8A8C7C' }}>
                 {sourceBusy
                   ? 'switching source…'
-                  : sourceError ?? (sourceLocked ? 'source switching locked' : 'source of this report · click to switch')}
+                  : sourceError ?? (sourceLocked ? 'Source fixed on hosted instance' : 'source of this report · click to switch')}
               </div>
             </div>
           </div>

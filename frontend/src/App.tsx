@@ -98,7 +98,7 @@ export default function App() {
   const running = gen.run.phase === 'run'
 
   // Keep the takeover mounted ~900ms into 'done' so the write→done shader
-  // crossfade is visible during the handoff to the report.
+  // crossfade is visible during the transition to the report.
   const [overlay, setOverlay] = useState(false)
   useEffect(() => {
     if (gen.run.phase === 'run') setOverlay(true)

@@ -9,15 +9,11 @@ BM25, so every claim traces back to a real post, and the app A/B tests itself
 against the same model writing with no retrieval at all.
 
 The default community is **c/games on lemmy.world**, the fediverse's largest
-gaming community, chosen deliberately: its API is public by design, so anyone
-can run the crawler and the live week-pull with **zero credentials**. (I
-would have used Reddit, but scraping it now requires an approved developer
-account. Reddit's 2026 Data API gate blocks unauthenticated `.json`/RSS
-access, so nobody cloning this repo could reproduce the ingest. There is a
-Reddit source anyway, behind credentials: see **Reddit** below.) A sidebar
-source switcher can wipe and re-ingest the dataset from other sources:
-c/technology, c/asklemmy, Hacker News (Algolia search API), r/games, or X
-(see **X** below, which needs a paid API tier).
+gaming community. Its API is open, so anyone can run the crawler and the
+live week pull without a source credential. A sidebar source switcher can
+wipe and re-ingest the dataset from other sources: c/technology, c/asklemmy,
+Hacker News (Algolia search API), r/games, or X (see **Other sources**
+below).
 
 ![Report tab](docs/report-tab.png)
 
@@ -25,9 +21,10 @@ c/technology, c/asklemmy, Hacker News (Algolia search API), r/games, or X
 
 Two ways to run it:
 
-**1. Hosted demo**: <https://bryanzane.com/com-voices/>. API keys are
-already configured server-side, so generation, A/B comparisons, and the
-live week pull all work with zero setup.
+**1. Hosted**: <https://bryanzane.com/community-voices/>. API keys are
+configured server-side, so generation and A/B comparisons work with zero
+setup. The hosted instance follows c/games; the live pull and source
+switcher are admin-only there.
 
 **2. Local install**: requirements are **Python 3.11+**. Node is *not*
 required; the frontend ships pre-built.
@@ -42,9 +39,9 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 The repo ships with a pre-ingested corpus (`data/community.sqlite`): a month
 of c/games activity as 200 posts, 453 chunks with real voyage-3-large
-embeddings, and 5 week windows. Nothing is pre-generated. Every document and
-A/B comparison you see is produced live when you click the button, so you
-watch the RAG pipeline do its work rather than browse canned output.
+embeddings, and 5 week windows, plus a few stored reports and comparisons
+so the tabs have something to show on first load. **Generate report**
+produces a new one live, so you watch the RAG pipeline do its work.
 
 Generation needs two free API keys (DeepSeek: platform.deepseek.com, Voyage:
 dashboard.voyageai.com). Copy `.env.example` to `.env` in the repo root and
@@ -71,7 +68,8 @@ ingested corpus, and the ingestion funnel, and the full test suite runs.
 - **Embeddings**: the 2-D map of every chunk. Toggle topic clusters vs
   retrieval heat, and click a cluster to inspect its most-retrieved chunks.
 - **Ingestion**: the crawl funnel and latest-run numbers. **Run now** pulls
-  the trailing 7 days of the current source live (needs a Voyage key).
+  the trailing 7 days of the current source live (needs a Voyage key;
+  admin-only when `ADMIN_TOKEN` is set).
 - **Help**: a plain-English FAQ of the moving parts.
 - **Sidebar**: pick the generation model (DeepSeek V4 default; V4 Flash, and
   the Claude models with an Anthropic key) and switch the ingest source,
@@ -93,10 +91,9 @@ Lemmy / Hacker News (posts + comments)  FastAPI                   React SPA
 
 - **Vector store**: a `vec0` virtual table (sqlite-vec) living in the same
   SQLite file as the relational tables (posts, documents, comparisons,
-  retrieval stats). That is "a vectorized database table in a relational
-  database," verbatim. Chosen deliberately: cloning the repo *is* getting the
-  data, and the schema ports 1:1 to Postgres + pgvector if this were
-  multi-writer production.
+  retrieval stats): a vector table inside a relational database. Cloning
+  the repo *is* getting the data, and the schema ports 1:1 to Postgres +
+  pgvector if this ever needs multiple writers.
 - **Retrieval**: 6 canonical facet queries ("debates and controversies",
   "questions people are asking", …) run against the selected week's chunks.
   Hybrid mode fuses BM25 and vector KNN with Reciprocal Rank Fusion; every
@@ -134,9 +131,11 @@ stages are: crawl, reduce, embed, retrieve, write, predict, ab, evaluate.
    and the model writes from up-to-date data (a failed pull falls back
    to the stored corpus and says so). The pull is skipped when the
    corpus was ingested within the last 12 hours, so back-to-back
-   regenerates reuse it.
-   Without a Voyage key those three stages instantly replay their real
-   numbers from ingest time rather than pretending to redo the work.
+   regenerates reuse it, and it sits behind `ADMIN_TOKEN` like the
+   Ingestion tab, so on the hosted instance visitors generate from the
+   stored corpus. Without a Voyage key, or without the token, those three
+   stages instantly replay their real numbers from ingest time rather
+   than pretending to redo the work.
 3. **Retrieve**: a worker thread runs retrieval. Six fixed facet queries
    ("debates and controversies," "tips and recommendations," …) are each
    searched against *only that week's* chunks using hybrid retrieval,
@@ -212,78 +211,28 @@ button runs the same pipeline for the trailing 7 days and the new window
 appears in the week selector. Measured on the real month ingest: 200 posts +
 115 comment fetches in 6.1 s, chunk + embed + index in 18.9 s.
 
-### Reddit
+### Other sources
 
-`.venv/bin/python -m app.ingest games --source reddit` crawls
-`/r/<sub>/top.json` with the same listing sweep, comment fan-out, chunker, and
-idempotent upsert as the other two sources. Only the two fetch functions and
-the mapper are Reddit-specific.
+Lemmy and Hacker News are built in and need no source credential. Two more
+adapters share the same listing sweep, comment fan-out, chunker, and
+idempotent upsert, and each is gated on its own credentials:
 
-Credentials are optional in the code and effectively required in practice.
-Set `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET` from a free "script" app at
-<https://www.reddit.com/prefs/apps>, plus a descriptive `REDDIT_USER_AGENT`,
-and the crawler authenticates app-only against `oauth.reddit.com`. Without
-them it falls back to the public `.json` endpoints.
+- **Reddit**: `.venv/bin/python -m app.ingest games --source reddit` crawls
+  `/r/<sub>/top.json`. Set `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, and a
+  descriptive `REDDIT_USER_AGENT` from a free "script" app at
+  <https://www.reddit.com/prefs/apps>; the crawler then authenticates
+  app-only against `oauth.reddit.com`. Reddit's Data API gate returns 403 to
+  unauthenticated `.json` requests, so credentials are required in practice.
+- **X**: `.venv/bin/python -m app.ingest "#gaming -is:retweet" --source x
+  --window week` runs X API v2 recent search; the positional argument is the
+  query (`X_QUERY` supplies it for the sidebar entry) and replies come from a
+  second search on each post's `conversation_id`. Needs `X_BEARER_TOKEN` on
+  the Basic tier or above (the free tier has no search), and recent search
+  reaches back 7 days only, so `--window month` returns a week.
 
-**The keyless fallback does not work.** Verified on 2026-09-14 from a
-residential connection with no credentials set:
-
-```
-GET https://www.reddit.com/r/games/top.json?t=week&limit=5
-HTTP 403  (an HTML block page, not JSON)
-```
-
-That is Reddit's Data API gate, the same one the intro describes, and it is
-why Lemmy remains the default source. No live Reddit corpus was ingested for
-this branch and none is claimed. The adapter is verified against recorded
-payload shapes in `backend/tests/test_ingest_unit.py`, including the gated
-response: a 403 or a non-array body returns zero comments rather than raising,
-so a partially blocked crawl degrades instead of failing. Whether the
-credentialed path returns a usable week is untested, because no Reddit app
-credentials were available.
-
-Rate limiting reuses the shared `_get_json` retry: one 10-second sleep on a
-429 or 5xx, then a single retry.
-### X
-
-`.venv/bin/python -m app.ingest "#gaming -is:retweet" --source x --window week`
-crawls X API v2 recent search and reuses the same chunker, embedder, and
-idempotent upsert as the other sources. The positional argument is the search
-query rather than a community name; `X_QUERY` supplies it for the sidebar
-entry, and the default is `#gaming -is:retweet -is:reply lang:en`. Replies
-are fetched as a second recent search on each post's `conversation_id`.
-
-**The free tier cannot run this.** X API v2 recent search is not included in
-the free tier, which is write-only (posting, no search read). **Basic or
-above is required**, and recent search on any tier reaches back **7 days
-only**, so `--window month` silently returns the week and nothing more. The
-full-archive endpoint that would cover a month sits behind a separate, higher
-access tier and is not implemented here.
-
-**No live fetch was made and no X data was ingested.** No bearer token was
-available. Verified on 2026-09-14, unauthenticated:
-
-```
-GET https://api.x.com/2/tweets/search/recent?query=%23gaming
-HTTP 401  {"title": "Unauthorized", "status": 401, "detail": "Unauthorized"}
-```
-
-Without a token `x_session` raises before any request, by design: a
-credential-gated source should fail loudly rather than return an empty week
-that looks like a quiet community. So this adapter is **stub-tested only**.
-The mapper, both fetch functions, pagination on `meta.next_token`, the
-conversation-id reply search, and the dispatch are covered in
-`backend/tests/test_ingest_unit.py` against recorded v2 payload shapes. What
-is not covered, and cannot be until someone supplies a token: whether a real
-query returns enough posts per week to make a useful digest, and whether the
-rate limits allow one reply search per selected post.
-
-That last one is the known ceiling. X rate-limits per 15-minute window; the
-shared `_get_json` retry sleeps 10 seconds once and retries once, which is
-tuned for Lemmy and HN. A wide query fanning out to 30 reply searches can
-exhaust a Basic-tier window. The `ponytail:` comment in `run_ingest` marks
-the spot; the fix is backoff driven by the `x-rate-limit-reset` header, and
-it is not worth writing before anyone has run it once for real.
+Both adapters are covered against recorded payload shapes in
+`backend/tests/test_ingest_unit.py`. The hosted instance does not exercise
+them; it follows c/games on Lemmy.
 
 Because re-runs are idempotent, unattended weekly ingestion is one cron line:
 
@@ -325,7 +274,7 @@ Four layers, run in CI on every push:
   prompts, persistence).
 - **API**: every endpoint through FastAPI's TestClient: happy paths, 400/404
   paths, download headers, stats accumulation, the SSE stream's event order,
-  the SPA mount, plus the product story end-to-end with every retrieval
+  the SPA mount, plus the full flow end-to-end with every retrieval
   counted exactly once.
 - **Real data**: integration tests over the committed store itself, real
   crawled posts and real voyage-3-large vectors, still keyless. Stored

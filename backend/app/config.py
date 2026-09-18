@@ -28,7 +28,7 @@ def _load_dotenv(path: Path = REPO_ROOT / ".env") -> None:
 
 _load_dotenv()
 
-# Generation model registry, DeepSeek V4 first (zero-key demo default).
+# Generation model registry, DeepSeek V4 first (default).
 # Prices are USD per million tokens (cache-miss input, output) for cost
 # estimates in A/B comparisons. Sources (checked 2026-07-13):
 #   DeepSeek: https://api-docs.deepseek.com/quick_start/pricing
@@ -77,13 +77,13 @@ MODELS: dict[str, dict] = {
 
 DEFAULT_MODEL_KEY = "deepseek-v4"
 
-# Spend guards for the public demo (see backend/app/budget.py). 0 disables.
+# Spend guards for the hosted instance (see backend/app/budget.py). 0 disables.
 DAILY_LLM_CALL_CAP = int(os.environ.get("DAILY_LLM_CALL_CAP", "40"))
 DAILY_EMBED_CALL_CAP = int(os.environ.get("DAILY_EMBED_CALL_CAP", "300"))
 GENERATE_PER_10MIN = int(os.environ.get("GENERATE_PER_10MIN", "3"))
 
-# Model keys selectable on this deployment, independent of which API keys
-# are configured — lets a demo restrict generation to cheap models only.
+# Model keys selectable on this instance, independent of which API keys
+# are configured — lets a hosted instance restrict generation to cheap models.
 ALLOWED_MODELS: set[str] = {
     m.strip()
     for m in os.environ.get(

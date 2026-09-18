@@ -1,4 +1,4 @@
-// Per-stage mesh-gradient palettes + crossfade math, from the design handoff.
+// Per-stage mesh-gradient palettes + crossfade math.
 
 export interface Shade {
   speed: number

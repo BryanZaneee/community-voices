@@ -1,4 +1,4 @@
-"""Shared fixtures: synthetic corpus, seeded DB, stubbed LLM, API client.
+"""Shared fixtures: sample corpus, seeded DB, stubbed LLM, API client.
 
 Every fixture is offline — embeddings come from FakeEmbeddingProvider and all
 LLM entry points are monkeypatched. Tests must pass with no API keys at all.

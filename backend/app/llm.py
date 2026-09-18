@@ -53,7 +53,7 @@ def _require_key(model_key: str) -> dict:
     if cfg is None:
         raise ModelUnavailable(f"unknown model: {model_key}")
     if model_key not in config.ALLOWED_MODELS:
-        raise ModelUnavailable(f"{cfg['label']} is not enabled on this deployment")
+        raise ModelUnavailable(f"{cfg['label']} is not enabled on this instance")
     if not os.environ.get(cfg["key_env"]):
         raise ModelUnavailable(
             f"{cfg['label']} requires the {cfg['key_env']} environment variable"

@@ -54,7 +54,7 @@ def charge(conn: sqlite3.Connection | None, kind: Literal["llm", "embed"]) -> No
             used = int(db.get_meta(conn, key) or 0)
             if used >= cap:
                 raise BudgetExhausted(
-                    "daily demo budget reached; try again after 00:00 UTC"
+                    "daily generation budget reached; resets at 00:00 UTC"
                 )
             db.set_meta(conn, key, str(used + 1))
         except sqlite3.ProgrammingError:
