@@ -1,5 +1,5 @@
 // Thin wrapper around @paper-design/shaders (vanilla ESM, zero deps).
-// Vendored from the design handoff with the CDN import swapped for the npm
+// Vendored mesh-gradient shader with the CDN import swapped for the npm
 // package; falls back to a CSS gradient if WebGL is unavailable.
 import * as m from '@paper-design/shaders'
 

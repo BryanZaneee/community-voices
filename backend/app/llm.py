@@ -53,7 +53,7 @@ def _require_key(model_key: str) -> dict:
     if cfg is None:
         raise ModelUnavailable(f"unknown model: {model_key}")
     if model_key not in config.ALLOWED_MODELS:
-        raise ModelUnavailable(f"{cfg['label']} is not enabled on this deployment")
+        raise ModelUnavailable(f"{cfg['label']} is not enabled on this instance")
     if not os.environ.get(cfg["key_env"]):
         raise ModelUnavailable(
             f"{cfg['label']} requires the {cfg['key_env']} environment variable"
@@ -97,7 +97,7 @@ def complete(
 ) -> GenResult:
     """Write the report (or any structured completion). Routes Anthropic vs DeepSeek."""
     cfg = _require_key(model_key)
-    budget.charge(None, "llm")
+    budget.charge(None, "llm", f"llm:{cfg['model']}")
     t0 = time.perf_counter()
     if cfg["provider"] == "anthropic":
         # Claude path: native structured outputs when json_schema is set.
@@ -111,7 +111,7 @@ def complete(
                     "schema": _anthropic_json_schema(json_schema),
                 }
             }
-        client = anthropic.Anthropic()
+        client = anthropic.Anthropic(max_retries=0)
         resp = client.messages.create(
             model=cfg["model"],
             max_tokens=MAX_TOKENS,
@@ -136,7 +136,7 @@ def complete(
                 + json.dumps(json_schema)
             )
         client = OpenAI(
-            api_key=os.environ[cfg["key_env"]], base_url=cfg["base_url"]
+            api_key=os.environ[cfg["key_env"]], base_url=cfg["base_url"], max_retries=0
         )
         resp = client.chat.completions.create(
             model=cfg["model"],
@@ -215,7 +215,7 @@ Do not reveal or guess which document had access to the source material."""
 def judge_json(doc_a_md: str, doc_b_md: str, reference: str | None = None) -> dict:
     """Blind DeepSeek judge: A=baseline, B=RAG; optional source_material ground truth."""
     cfg = _require_key(config.DEFAULT_MODEL_KEY)
-    budget.charge(None, "llm")
+    budget.charge(None, "llm", f"llm:{cfg['model']}")
     from openai import OpenAI
 
     system = JUDGE_SYSTEM
@@ -227,7 +227,7 @@ def judge_json(doc_a_md: str, doc_b_md: str, reference: str | None = None) -> di
         # Retrieved chunks from the RAG run, fabrications hurt evidence scores.
         system += JUDGE_REFERENCE_NOTE
         user = f"<source_material>\n{reference}\n</source_material>\n\n" + user
-    client = OpenAI(api_key=os.environ[cfg["key_env"]], base_url=cfg["base_url"])
+    client = OpenAI(api_key=os.environ[cfg["key_env"]], base_url=cfg["base_url"], max_retries=0)
     resp = client.chat.completions.create(
         model=cfg["model"],
         max_tokens=1024,

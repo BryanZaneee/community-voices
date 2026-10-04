@@ -94,7 +94,7 @@ class VoyageEmbeddingProvider:
                 "Voyage embeddings require the voyageai package "
                 "(pip install -r backend/requirements.txt)."
             ) from exc
-        self._client = voyageai.Client(api_key=self._api_key)
+        self._client = voyageai.Client(api_key=self._api_key, max_retries=0)
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         # Ingest path: mark texts as documents for Voyage's asymmetric models.
@@ -106,12 +106,12 @@ class VoyageEmbeddingProvider:
 
     def _embed(self, texts: list[str], *, input_type: str) -> list[list[float]]:
         # Call Voyage; retry with backoff on free-tier rate limits.
-        budget.charge(None, "embed")  # one charge per request, batched or not
         from voyageai.error import RateLimitError
 
         delay = 20.0
         for attempt in range(6):
             try:
+                budget.charge(None, "embed", f"embed:{self.model}")
                 response = self._client.embed(
                     texts, model=self.model, input_type=input_type
                 )

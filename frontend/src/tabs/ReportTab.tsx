@@ -369,10 +369,6 @@ function CommunityPulse({ status, week }: { status: Status | null; week: Week | 
           daily posting volume in the covered window
         </div>
       </div>
-      <div style={{ fontSize: 12, lineHeight: 1.5, color: '#6B6D5F', maxWidth: 560, marginBottom: 14 }}>
-        An active community with an open API, public by design, so this
-        whole pipeline runs with zero credentials.
-      </div>
       <div
         style={{
           display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',

@@ -1,4 +1,4 @@
-/* Community Voices — design-handoff tokens and base styles.
+/* Community Voices — design tokens and base styles.
    Layout/spacing/colors live inline in the components (ported 1:1 from the
    prototype); this file carries what inline styles can't: resets, fonts,
    keyframes, hover/selection states, and the print stylesheet. */

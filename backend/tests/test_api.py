@@ -139,6 +139,7 @@ def test_generate_stream_live_pull(client, monkeypatch):
     from tests.conftest import DIM
 
     monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
+    monkeypatch.setenv("ADMIN_TOKEN", "secret")
     monkeypatch.setattr(
         app_main, "VoyageEmbeddingProvider",
         lambda model: FakeEmbeddingProvider(dim=DIM),
@@ -157,6 +158,7 @@ def test_generate_stream_live_pull(client, monkeypatch):
     with client.stream(
         "GET",
         f"/api/generate/stream?week_start={week}&model_key=deepseek-v4",
+        headers={"Authorization": "Bearer secret"},
     ) as resp:
         body = "".join(resp.iter_text())
 
@@ -174,6 +176,7 @@ def test_generate_stream_live_pull_failure_degrades(client, monkeypatch):
     from app import main as app_main
 
     monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
+    monkeypatch.setenv("ADMIN_TOKEN", "secret")
     _backdate_ingest(app_main)
 
     def boom(*args, **kwargs):
@@ -184,6 +187,7 @@ def test_generate_stream_live_pull_failure_degrades(client, monkeypatch):
     with client.stream(
         "GET",
         f"/api/generate/stream?week_start={week}&model_key=deepseek-v4",
+        headers={"Authorization": "Bearer secret"},
     ) as resp:
         body = "".join(resp.iter_text())
     assert "live pull failed" in body and "using stored corpus" in body
@@ -212,6 +216,37 @@ def test_generate_stream_skips_pull_when_fresh(client, monkeypatch):
     assert "event: done" in body
 
 
+def test_generate_stream_pull_respects_admin_lock(client, monkeypatch):
+    """The pre-report pull is a crawl + paid embed: with ADMIN_TOKEN set it
+    only runs for a request carrying the token. Everyone else generates
+    from the stored corpus and gets the cached crawl/reduce/embed stages."""
+    from app import main as app_main
+
+    monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
+    monkeypatch.setenv("ADMIN_TOKEN", "secret")
+    _backdate_ingest(app_main)  # stale enough that an open pull would run
+
+    def boom(*args, **kwargs):
+        raise AssertionError("crawler/embedder ran without the admin token")
+
+    monkeypatch.setattr(app_main.ingest, "run_ingest", boom)
+    monkeypatch.setattr(app_main, "VoyageEmbeddingProvider", boom)
+    url = f"/api/generate/stream?week_start={_week(client)}&model_key=deepseek-v4"
+
+    with client.stream("GET", url) as resp:
+        body = "".join(resp.iter_text())
+    assert "live pull" not in body
+    assert '"status": "cached"' in body
+    assert "event: done" in body and "event: error" not in body
+
+    # the token opens the gate: the pull is attempted (and here fails loudly)
+    with client.stream(
+        "GET", url, headers={"Authorization": "Bearer secret"}
+    ) as resp:
+        body = "".join(resp.iter_text())
+    assert "live pull failed" in body and "without the admin token" in body
+
+
 def test_generate_stream_error_event(client):
     week = _week(client)
     with client.stream(
@@ -222,8 +257,9 @@ def test_generate_stream_error_event(client):
     assert "event: error" in body and "unknown model" in body
 
 
-def test_ingest_week_requires_voyage_key(client):
-    resp = client.post("/api/ingest/week")
+def test_ingest_week_requires_voyage_key(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "secret")
+    resp = client.post("/api/ingest/week", headers={"Authorization": "Bearer secret"})
     assert resp.status_code == 400
     assert "VOYAGE_API_KEY" in resp.json()["detail"]
 
@@ -302,3 +338,27 @@ def test_spa_served_at_root(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "<div id=\"root\">" in resp.text
+
+
+def test_missing_admin_configuration_denies_mutations(client, monkeypatch):
+    monkeypatch.delenv("ADMIN_TOKEN", raising=False)
+    assert client.post("/api/ingest/week").status_code == 403
+    assert client.post("/api/ingest/source", json={"source_key": "hackernews"}).status_code == 403
+    assert client.get("/api/status").json()["ingest_locked"] is True
+
+
+def test_reconnecting_generation_does_not_repeat_provider_work(client, stub_llm):
+    url = f"/api/generate/stream?week_start={_week(client)}&model_key=deepseek-v4&request_id=retry-test"
+    first = client.get(url)
+    assert first.status_code == 200
+    calls = len(stub_llm["complete"])
+    assert calls > 0
+    assert client.get(url).status_code == 409
+    assert len(stub_llm["complete"]) == calls
+
+
+def test_forged_forwarding_headers_do_not_reset_allowance(client):
+    from app import config
+    for i in range(config.GENERATE_PER_10MIN):
+        assert client.post("/api/generate", json={"week_start": _week(client), "model_key": "deepseek-v4"}, headers={"CF-Connecting-IP": f"fake-{i}"}).status_code == 200
+    assert client.post("/api/generate", json={"week_start": _week(client), "model_key": "deepseek-v4"}, headers={"CF-Connecting-IP": "new-fake"}).status_code == 429

@@ -1,7 +1,6 @@
 // Mounts a mesh gradient and smoothly eases its palette toward a target:
 // the shade key's palette, or (during a run) a progress blend between the
-// current stage and the next, so colors drift continuously per the design
-// handoff.
+// current stage and the next, so colors drift continuously.
 import { useCallback, useEffect, useRef } from 'react'
 import { mountMeshGradient, type ShaderController } from './shaders'
 import { mixShade, SHADES, type Shade } from './shades'

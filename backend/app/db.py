@@ -73,6 +73,9 @@ CREATE TABLE IF NOT EXISTS comparisons (
 );
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS generation_requests (
+ id TEXT PRIMARY KEY, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import os
 import random
+import shutil
 import sys
 from pathlib import Path
 
@@ -19,7 +20,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 
 from app import db
-from app.config import DB_PATH
+from app.config import REPO_ROOT
+
+DB_PATH = REPO_ROOT / "data" / "community.sqlite"
 from app.rag.vector_index import VectorIndex
 from app.rag.retriever import Retriever
 
@@ -31,15 +34,22 @@ DIM = 1024
 
 
 @pytest.fixture(scope="module")
-def conn():
-    c = db.connect(DB_PATH)
+def store_path(tmp_path_factory):
+    path = tmp_path_factory.mktemp("community-store") / "community.sqlite"
+    shutil.copy2(DB_PATH, path)
+    return path
+
+
+@pytest.fixture(scope="module")
+def conn(store_path):
+    c = db.connect(store_path)
     yield c
     c.close()
 
 
 @pytest.fixture(scope="module")
-def index():
-    idx = VectorIndex(DB_PATH, dim=DIM)
+def index(store_path):
+    idx = VectorIndex(store_path, dim=DIM)
     yield idx
     idx.close()
 
@@ -135,9 +145,12 @@ def test_retriever_week_filter_on_real_store(conn, index, store):
     assert all(r.chunk.path in allowed for r in results)
 
 
-@pytest.mark.skipif(not os.environ.get("VOYAGE_API_KEY"),
-                    reason="live Voyage test needs VOYAGE_API_KEY")
-def test_live_voyage_query_against_real_store(index):
+@pytest.mark.skipif(os.environ.get("RUN_LIVE_PROVIDER_TESTS") != "1" or not os.environ.get("VOYAGE_API_KEY"),
+                    reason="live Voyage test requires explicit RUN_LIVE_PROVIDER_TESTS=1")
+def test_live_voyage_query_against_real_store(index, conn, monkeypatch):
+    from app import budget
+
+    monkeypatch.setattr(budget, "_conn", conn)
     from app.rag.embeddings import VoyageEmbeddingProvider
 
     provider = VoyageEmbeddingProvider(model="voyage-3-large", dim=DIM)

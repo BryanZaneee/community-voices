@@ -2,8 +2,8 @@ import type { Status } from '../api'
 import { ACCENT, communityIdentity } from '../viewmodel'
 import { card, DISPLAY } from '../ui'
 
-// Help copy from the design handoff, with the stack names swapped for the
-// real one (sqlite-vec, Voyage embeddings, weekly cron via README).
+// Help copy. Stack names match the real one (sqlite-vec, Voyage
+// embeddings, weekly cron via README).
 const HELP_ITEMS = (community: string, model: string) => [
   {
     q: 'What is this report?',
