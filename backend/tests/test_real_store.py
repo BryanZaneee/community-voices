@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import os
 import random
+import shutil
 import sys
 from pathlib import Path
 
@@ -19,7 +20,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 
 from app import db
-from app.config import DB_PATH
+from app.config import REPO_ROOT
+
+DB_PATH = REPO_ROOT / "data" / "community.sqlite"
 from app.rag.vector_index import VectorIndex
 from app.rag.retriever import Retriever
 
@@ -31,15 +34,22 @@ DIM = 1024
 
 
 @pytest.fixture(scope="module")
-def conn():
-    c = db.connect(DB_PATH)
+def store_path(tmp_path_factory):
+    path = tmp_path_factory.mktemp("community-store") / "community.sqlite"
+    shutil.copy2(DB_PATH, path)
+    return path
+
+
+@pytest.fixture(scope="module")
+def conn(store_path):
+    c = db.connect(store_path)
     yield c
     c.close()
 
 
 @pytest.fixture(scope="module")
-def index():
-    idx = VectorIndex(DB_PATH, dim=DIM)
+def index(store_path):
+    idx = VectorIndex(store_path, dim=DIM)
     yield idx
     idx.close()
 

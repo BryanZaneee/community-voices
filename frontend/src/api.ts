@@ -232,6 +232,7 @@ export function generateStream(
 ): Promise<Doc> {
   const qs = new URLSearchParams({
     week_start: params.week_start,
+    request_id: crypto.randomUUID(),
     model_key: params.model_key,
     mode: params.mode ?? 'rag',
   })

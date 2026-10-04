@@ -32,6 +32,7 @@ state: dict = {}
 # the vector index's own connection, and the swappable retriever. Reads use
 # fresh per-request connections (read_conn) and never take the lock.
 write_lock = threading.Lock()
+generation_slots = threading.BoundedSemaphore(2)
 
 # Per-visitor fixed-window limiter for the generation endpoints.
 # ponytail: in-process, one worker; move to SQLite/Redis if it ever fronts
@@ -41,12 +42,8 @@ _visitor_hits: dict[str, list[float]] = {}
 
 
 def _visitor_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for", "")
-    return (
-        request.headers.get("cf-connecting-ip")
-        or fwd.split(",")[0].strip()
-        or (request.client.host if request.client else "unknown")
-    )
+    # Trust only the peer identity normalized by the configured ASGI proxy layer.
+    return request.client.host if request.client else "unknown"
 
 
 def _check_generate_limit(request: Request) -> None:
@@ -266,6 +263,7 @@ def generate_stream(
     mode: Literal["rag", "baseline"] = "rag",
     retrieval_mode: RetrievalMode = "hybrid",
     authorization: str | None = Header(None),
+    request_id: str | None = None,
 ) -> StreamingResponse:
     """SSE Report tab: live pull (optional), run_comparison, stage events."""
     # With a Voyage key, a RAG run starts with a live trailing-7-day pull so
@@ -282,6 +280,24 @@ def generate_stream(
         and _is_admin(authorization)
         and not _pulled_recently(conn)
     )
+    request_id = request_id or secrets.token_hex(16)
+    if len(request_id) > 128 or not request_id.replace("-", "").isalnum():
+        raise HTTPException(400, "invalid generation request id")
+    if not generation_slots.acquire(blocking=False):
+        raise HTTPException(429, "generation is busy; try again shortly")
+    try:
+        with write_lock, conn:
+            # IDs survive worker restarts. Reconnecting to an existing URL never
+            # starts the paid pipeline again; completed reports remain in history.
+            conn.execute("DELETE FROM generation_requests WHERE created_at < datetime('now', '-7 days')")
+            conn.execute("INSERT INTO generation_requests(id) VALUES (?)", (request_id,))
+            cached = _cached_stage_events(conn, week_start) if not live else []
+    except sqlite3.IntegrityError as exc:
+        generation_slots.release()
+        raise HTTPException(409, "generation already started; check saved reports") from exc
+    except Exception:
+        generation_slots.release()
+        raise
     q: queue.Queue = queue.Queue()
 
     def progress(stage: str, info: dict) -> None:
@@ -302,6 +318,7 @@ def generate_stream(
             q.put(_sse("error", {"detail": str(exc)}))
         finally:
             q.put(None)
+            generation_slots.release()
 
     def _run_locked() -> None:
         if live:
@@ -346,13 +363,7 @@ def generate_stream(
             ))
 
     def events():
-        if not live:
-            with write_lock:
-                cached = _cached_stage_events(conn, week_start)
-            yield from cached
-        # ponytail: one worker thread per stream, UI serializes runs; a job
-        # queue is the upgrade path if generation ever goes multi-user.
-        threading.Thread(target=run, daemon=True).start()
+        yield from cached
         while True:
             try:
                 item = q.get(timeout=15)
@@ -365,6 +376,12 @@ def generate_stream(
                 break
             yield item
 
+    # Start before returning so a disconnect cannot leak an unused slot.
+    try:
+        threading.Thread(target=run, daemon=True).start()
+    except Exception:
+        generation_slots.release()
+        raise
     return StreamingResponse(events(), media_type="text/event-stream")
 
 

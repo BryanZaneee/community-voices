@@ -345,3 +345,20 @@ def test_missing_admin_configuration_denies_mutations(client, monkeypatch):
     assert client.post("/api/ingest/week").status_code == 403
     assert client.post("/api/ingest/source", json={"source_key": "hackernews"}).status_code == 403
     assert client.get("/api/status").json()["ingest_locked"] is True
+
+
+def test_reconnecting_generation_does_not_repeat_provider_work(client, stub_llm):
+    url = f"/api/generate/stream?week_start={_week(client)}&model_key=deepseek-v4&request_id=retry-test"
+    first = client.get(url)
+    assert first.status_code == 200
+    calls = len(stub_llm["complete"])
+    assert calls > 0
+    assert client.get(url).status_code == 409
+    assert len(stub_llm["complete"]) == calls
+
+
+def test_forged_forwarding_headers_do_not_reset_allowance(client):
+    from app import config
+    for i in range(config.GENERATE_PER_10MIN):
+        assert client.post("/api/generate", json={"week_start": _week(client), "model_key": "deepseek-v4"}, headers={"CF-Connecting-IP": f"fake-{i}"}).status_code == 200
+    assert client.post("/api/generate", json={"week_start": _week(client), "model_key": "deepseek-v4"}, headers={"CF-Connecting-IP": "new-fake"}).status_code == 429
