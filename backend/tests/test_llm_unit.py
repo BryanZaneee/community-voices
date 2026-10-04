@@ -62,6 +62,7 @@ def test_judge_unparseable_output_degrades(monkeypatch, tmp_path):
 
     conn = db.connect(tmp_path / "budget.sqlite")
     monkeypatch.setattr(budget, "_conn", conn)
+    monkeypatch.setenv("DEMO_REQUEST_COST_BOUNDS", '{"llm:deepseek-chat":1000}')
     class FakeChoice:
         message = type("M", (), {"content": "not json at all"})()
 

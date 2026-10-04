@@ -5,7 +5,8 @@ from app import budget, config, db
 
 
 @pytest.fixture
-def conn(tmp_path):
+def conn(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEMO_REQUEST_COST_BOUNDS", '{"llm":1000,"embed":1000}')
     c = db.connect(tmp_path / "budget.sqlite")
     yield c
     c.close()
@@ -74,6 +75,7 @@ def test_tracking_failure_denies_work(conn, monkeypatch, state):
 def test_independent_connections_cannot_overrun_cap(tmp_path, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
 
+    monkeypatch.setenv("DEMO_REQUEST_COST_BOUNDS", '{"llm":1000}')
     monkeypatch.setattr(config, "DAILY_LLM_CALL_CAP", 3)
     path = tmp_path / "concurrent.sqlite"
     db.connect(path).close()
@@ -95,3 +97,17 @@ def test_independent_connections_cannot_overrun_cap(tmp_path, monkeypatch):
         assert budget.usage(reopened)["llm_used"] == 3
     finally:
         reopened.close()
+
+
+def test_dollar_budget_is_shared_across_kinds(conn, monkeypatch):
+    monkeypatch.setenv("DEMO_REQUEST_COST_BOUNDS", '{"llm":300000,"embed":300000}')
+    budget.charge(conn, "llm")
+    with pytest.raises(budget.BudgetExhausted, match="spending budget"):
+        budget.charge(conn, "embed")
+    assert budget.usage(conn)["embed_used"] == 0
+
+
+def test_unconfigured_cost_blocks_work(conn, monkeypatch):
+    monkeypatch.delenv("DEMO_REQUEST_COST_BOUNDS", raising=False)
+    with pytest.raises(budget.BudgetExhausted, match="spending bound"):
+        budget.charge(conn, "llm")
