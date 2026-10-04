@@ -57,7 +57,11 @@ def test_anthropic_json_schema_strips_unsupported_constraints():
     assert "anyOf" in share
 
 
-def test_judge_unparseable_output_degrades(monkeypatch):
+def test_judge_unparseable_output_degrades(monkeypatch, tmp_path):
+    from app import budget, db
+
+    conn = db.connect(tmp_path / "budget.sqlite")
+    monkeypatch.setattr(budget, "_conn", conn)
     class FakeChoice:
         message = type("M", (), {"content": "not json at all"})()
 
@@ -76,7 +80,10 @@ def test_judge_unparseable_output_degrades(monkeypatch):
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
     monkeypatch.setattr(openai, "OpenAI", lambda **_: FakeClient())
-    out = llm.judge_json("a", "b")
+    try:
+        out = llm.judge_json("a", "b")
+    finally:
+        conn.close()
     assert out["winner"] == "tie"
     assert out["scores"] is None
     assert "not json" in out["rationale"]

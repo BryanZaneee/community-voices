@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import secrets
 import sqlite3
 import threading
 import time
@@ -62,11 +63,8 @@ def _check_generate_limit(request: Request) -> None:
 
 
 def _is_admin(authorization: str | None) -> bool:
-    # Dataset mutators (ingest, pre-report pull) are open when ADMIN_TOKEN is
-    # unset, so local dev is unaffected; the hosted instance sets it to lock
-    # them down.
-    token = os.environ.get("ADMIN_TOKEN")
-    return not token or authorization == f"Bearer {token}"
+    token = os.environ.get("ADMIN_TOKEN", "").strip()
+    return bool(token) and secrets.compare_digest(authorization or "", f"Bearer {token}")
 
 
 def _check_admin(authorization: str | None) -> None:
@@ -97,6 +95,7 @@ async def lifespan(app: FastAPI):
     state["retriever"] = _build_retriever(conn, vector_index)
     budget.bind(conn)
     yield
+    budget.bind(None)
     conn.close()
     vector_index.close()
 
@@ -131,7 +130,7 @@ def status(conn: sqlite3.Connection = Depends(read_conn)) -> dict:
     # Sidebar bootstrap: weeks, models, hybrid flag, ingest funnel stats.
     weeks = db.week_windows(conn)
     ingest_report = db.get_meta(conn, "ingest_report")
-    admin_locked = bool(os.environ.get("ADMIN_TOKEN"))
+    admin_locked = True
     return {
         "community": db.get_meta(conn, "community"),
         "source": db.get_meta(conn, "source") or "lemmy",

@@ -23,7 +23,7 @@ class BudgetExhausted(RuntimeError):
     """Raised when a charge would push a kind's daily count past its cap."""
 
 
-def bind(conn: sqlite3.Connection) -> None:
+def bind(conn: sqlite3.Connection | None) -> None:
     """Wire the shared lifespan connection so complete()/judge_json()/
     _embed() can charge without a conn argument at their call sites."""
     global _conn
@@ -39,26 +39,32 @@ def _cap(kind: Literal["llm", "embed"]) -> int:
 
 
 def charge(conn: sqlite3.Connection | None, kind: Literal["llm", "embed"]) -> None:
-    """Increment today's counter for `kind`; raise BudgetExhausted instead of
-    incrementing if that would exceed the cap. A cap of 0 disables the check.
-    `conn` defaults to the connection passed to bind()."""
+    """Reserve a call durably before provider work; unavailable tracking denies it."""
     cap = _cap(kind)
     if cap <= 0:
-        return
+        raise BudgetExhausted("paid generation is disabled")
     conn = conn or _conn
     if conn is None:
-        return  # ponytail: not bound yet (e.g. import-time use) — skip
+        raise BudgetExhausted("budget tracking unavailable")
     key = f"budget:{kind}:{_today()}"
     with _lock:
         try:
-            used = int(db.get_meta(conn, key) or 0)
-            if used >= cap:
-                raise BudgetExhausted(
-                    "daily generation budget reached; resets at 00:00 UTC"
+            with conn:
+                conn.execute("BEGIN IMMEDIATE")
+                used = int(db.get_meta(conn, key) or 0)
+                if used < 0:
+                    raise ValueError("negative budget counter")
+                if used >= cap:
+                    raise BudgetExhausted(
+                        "daily generation budget reached; resets at 00:00 UTC"
+                    )
+                conn.execute(
+                    "INSERT INTO meta(key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (key, str(used + 1)),
                 )
-            db.set_meta(conn, key, str(used + 1))
-        except sqlite3.ProgrammingError:
-            return  # ponytail: bound conn closed (e.g. a prior test's lifespan)
+        except (sqlite3.Error, ValueError, TypeError) as exc:
+            raise BudgetExhausted("budget tracking unavailable") from exc
 
 
 def usage(conn: sqlite3.Connection | None = None) -> dict:

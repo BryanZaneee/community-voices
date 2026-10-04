@@ -20,11 +20,12 @@ def test_charge_hits_cap_then_raises(conn, monkeypatch):
     assert budget.usage(conn)["llm_used"] == 2  # the failed charge didn't count
 
 
-def test_cap_zero_disables(conn, monkeypatch):
-    monkeypatch.setattr(config, "DAILY_LLM_CALL_CAP", 0)
-    for _ in range(10):
-        budget.charge(conn, "llm")  # never raises
-    assert budget.usage(conn)["llm_used"] == 0  # disabled cap isn't counted either
+@pytest.mark.parametrize("cap", [0, -1])
+def test_nonpositive_cap_disables_paid_work(conn, monkeypatch, cap):
+    monkeypatch.setattr(config, "DAILY_LLM_CALL_CAP", cap)
+    with pytest.raises(budget.BudgetExhausted):
+        budget.charge(conn, "llm")
+    assert budget.usage(conn)["llm_used"] == 0
 
 
 def test_date_rollover_resets_counter(conn, monkeypatch):
@@ -57,3 +58,40 @@ def test_bind_lets_call_sites_omit_conn(conn, monkeypatch):
             budget.charge(None, "llm")
     finally:
         budget.bind(None)  # ponytail: don't leak this conn into other tests
+
+
+@pytest.mark.parametrize("state", ["missing", "closed", "corrupt"])
+def test_tracking_failure_denies_work(conn, monkeypatch, state):
+    monkeypatch.setattr(budget, "_conn", None)
+    if state == "closed":
+        conn.close()
+    elif state == "corrupt":
+        db.set_meta(conn, f"budget:llm:{budget._today()}", "broken")
+    with pytest.raises(budget.BudgetExhausted):
+        budget.charge(None if state == "missing" else conn, "llm")
+
+
+def test_independent_connections_cannot_overrun_cap(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    monkeypatch.setattr(config, "DAILY_LLM_CALL_CAP", 3)
+    path = tmp_path / "concurrent.sqlite"
+    db.connect(path).close()
+
+    def attempt(_):
+        connection = db.connect(path)
+        try:
+            budget.charge(connection, "llm")
+            return 1
+        except budget.BudgetExhausted:
+            return 0
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        assert sum(pool.map(attempt, range(20))) == 3
+    reopened = db.connect(path)
+    try:
+        assert budget.usage(reopened)["llm_used"] == 3
+    finally:
+        reopened.close()

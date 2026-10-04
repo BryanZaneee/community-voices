@@ -135,9 +135,12 @@ def test_retriever_week_filter_on_real_store(conn, index, store):
     assert all(r.chunk.path in allowed for r in results)
 
 
-@pytest.mark.skipif(not os.environ.get("VOYAGE_API_KEY"),
-                    reason="live Voyage test needs VOYAGE_API_KEY")
-def test_live_voyage_query_against_real_store(index):
+@pytest.mark.skipif(os.environ.get("RUN_LIVE_PROVIDER_TESTS") != "1" or not os.environ.get("VOYAGE_API_KEY"),
+                    reason="live Voyage test requires explicit RUN_LIVE_PROVIDER_TESTS=1")
+def test_live_voyage_query_against_real_store(index, conn, monkeypatch):
+    from app import budget
+
+    monkeypatch.setattr(budget, "_conn", conn)
     from app.rag.embeddings import VoyageEmbeddingProvider
 
     provider = VoyageEmbeddingProvider(model="voyage-3-large", dim=DIM)

@@ -139,6 +139,7 @@ def test_generate_stream_live_pull(client, monkeypatch):
     from tests.conftest import DIM
 
     monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
+    monkeypatch.setenv("ADMIN_TOKEN", "secret")
     monkeypatch.setattr(
         app_main, "VoyageEmbeddingProvider",
         lambda model: FakeEmbeddingProvider(dim=DIM),
@@ -157,6 +158,7 @@ def test_generate_stream_live_pull(client, monkeypatch):
     with client.stream(
         "GET",
         f"/api/generate/stream?week_start={week}&model_key=deepseek-v4",
+        headers={"Authorization": "Bearer secret"},
     ) as resp:
         body = "".join(resp.iter_text())
 
@@ -174,6 +176,7 @@ def test_generate_stream_live_pull_failure_degrades(client, monkeypatch):
     from app import main as app_main
 
     monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
+    monkeypatch.setenv("ADMIN_TOKEN", "secret")
     _backdate_ingest(app_main)
 
     def boom(*args, **kwargs):
@@ -184,6 +187,7 @@ def test_generate_stream_live_pull_failure_degrades(client, monkeypatch):
     with client.stream(
         "GET",
         f"/api/generate/stream?week_start={week}&model_key=deepseek-v4",
+        headers={"Authorization": "Bearer secret"},
     ) as resp:
         body = "".join(resp.iter_text())
     assert "live pull failed" in body and "using stored corpus" in body
@@ -253,8 +257,9 @@ def test_generate_stream_error_event(client):
     assert "event: error" in body and "unknown model" in body
 
 
-def test_ingest_week_requires_voyage_key(client):
-    resp = client.post("/api/ingest/week")
+def test_ingest_week_requires_voyage_key(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "secret")
+    resp = client.post("/api/ingest/week", headers={"Authorization": "Bearer secret"})
     assert resp.status_code == 400
     assert "VOYAGE_API_KEY" in resp.json()["detail"]
 
@@ -333,3 +338,10 @@ def test_spa_served_at_root(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "<div id=\"root\">" in resp.text
+
+
+def test_missing_admin_configuration_denies_mutations(client, monkeypatch):
+    monkeypatch.delenv("ADMIN_TOKEN", raising=False)
+    assert client.post("/api/ingest/week").status_code == 403
+    assert client.post("/api/ingest/source", json={"source_key": "hackernews"}).status_code == 403
+    assert client.get("/api/status").json()["ingest_locked"] is True
